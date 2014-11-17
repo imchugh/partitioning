@@ -115,19 +115,19 @@ def main():
     QC()
     
     # Calculate Re and GPP    
-    resp(df)    
+    output_df=resp(df)    
     
     # Plot fits
     plot_windows(d_dfs,d_options,d_paths)
 
     # Plot interpolated parameter time series
-    plot_paramater_ts(params_df)
+#    plot_paramater_ts(params_df)
     
     # Output parameters file
     params_df.to_csv(os.path.join(d_paths['results_output_path'],'Fit_parameters.csv'))
     print 'Analysis complete'    
     
-    return params_df
+    return output_df,params_df
 #------------------------------------------------------------------------------
     
 #------------------------------------------------------------------------------                   
