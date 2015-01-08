@@ -184,8 +184,6 @@ def main():
     optimise(noct_df,years_df,params_df,step_dates['noct'],d_options,d_paths,True)
     optimise(day_df,years_df,params_df,step_dates['day'],d_options,d_paths,False)
     
-    pdb.set_trace()    
-    
     # Basic QC and interpolation
     QC_and_fill(params_df,['rb_noct','rb_day','alpha','Aopt','k'])
    
@@ -194,7 +192,7 @@ def main():
     
     # Output parameters file
     params_df.to_csv(os.path.join(d_paths['results_output_path'],'Fit_parameters.csv'))
-    print 'Analysis complete'    
+    print 'Analysis complete!'    
     
     return output_df,params_df
 #------------------------------------------------------------------------------
@@ -296,15 +294,15 @@ def optimise(df,years_df,params_df,dates,d_options,d_paths,noct_flag):
 
                  # Try nocturnal step optimisation - if causes error return nan array    
                 try:
-                    params_df['rb_noct'].ix[i]=curve_fit(make_TRF_rb(params_df['Tref'].ix[i],params_df['Eo'].ix[i]),
+                    params_df.loc[i,'rb_noct']=curve_fit(make_TRF_rb(params_df['Tref'].ix[i],params_df['Eo'].ix[i]),
                                                          sub_df[tempName],
                                                          sub_df[CfluxName],
                                                          p0=1)[0]
-                    params_df['Status_noct'].ix[i]='Valid fit'
+                    params_df.loc[i,'Status_noct']='Valid fit'
                     plot_flag=True if output_plots else False
                 except RuntimeError:
-                    params_df['rb_noct'].ix[i]=np.nan
-                    params_df['Status_noct'].ix[i]='Invalid fit'
+                    params_df.loc[i,'rb_noct']=np.nan
+                    params_df.loc[i,'Status_noct']='Invalid fit'
                     plot_flag=False
                     
                 # Plot if required otherwise skip
@@ -317,9 +315,9 @@ def optimise(df,years_df,params_df,dates,d_options,d_paths,noct_flag):
             else:
         
                 if len(sub_df)<min_n:
-                    params_df['Status_noct'][i]='Insufficient data'
+                    params_df.loc[i,'Status_noct']='Insufficient data'
                 else:
-                    params_df['Status_noct'][i]='Insufficient temperature spread'   
+                    params_df.loc[i,'Status_noct']='Insufficient temperature spread'   
         
         else:
             # If either too few data or temperature range is less than 5C, abort optimisation
@@ -327,20 +325,16 @@ def optimise(df,years_df,params_df,dates,d_options,d_paths,noct_flag):
             
                 # Try daytime step optimisation - if causes error return nan array    
                 try:
-                    params=curve_fit(make_LRF(params_df['Tref'].ix[i],params_df['Eo'].ix[i],params_df['D0'].ix[i]),
-                                              sub_df[[radName,tempName,VPDName]],
-                                              sub_df[CfluxName],
-                                              p0=[-0.1,-10,1,1])[0]
-                    params_df['Status_day'][i]='Valid fit'
+                    params_df.loc[i,['alpha','Aopt','rb_day','k']]=curve_fit(make_LRF(params_df['Tref'].ix[i],params_df['Eo'].ix[i],params_df['D0'].ix[i]),
+                                                                             sub_df[[radName,tempName,VPDName]],
+                                                                             sub_df[CfluxName],
+                                                                             p0=[-0.001,-10,1,0.2])[0]
+                    params_df.loc[i,'Status_day']='Valid fit'
                     plot_flag=True if output_plots else False
                 except RuntimeError:
-                    params=[np.nan,np.nan,np.nan,np.nan]
-                    params_df['Status_day'].ix[i]='Invalid fit'
+                    params_df.loc[i,['alpha','Aopt','rb_day','k']]=np.nan
+                    params_df.loc[i,'Status_day']='Invalid fit'
                     plot_flag=False
-                params_df['alpha'][i]=params[0]
-                params_df['Aopt'][i]=params[1]
-                params_df['rb_day'][i]=params[2]
-                params_df['k'][i]=params[3]
             
                 # Plot if required otherwise skip
                 if plot_flag:
@@ -353,9 +347,9 @@ def optimise(df,years_df,params_df,dates,d_options,d_paths,noct_flag):
             else:
         
                 if len(sub_df)<min_n:
-                    params_df['Status_day'][i]='Insufficient data'
+                    params_df.loc[i,'Status_day']='Insufficient data'
                 else:
-                    params_df['Status_day'][i]='Insufficient temperature spread' 
+                    params_df.loc[i,'Status_day']='Insufficient temperature spread' 
 
     if noct_flag:
         num_actual_fits=len(params_df[params_df['Status_noct']=='Valid fit'])
