@@ -1,0 +1,44 @@
+# Comments
+# 'infile_type' choices are 'OzFluxQC' or 'other'
+
+# Input file and name, output path
+[files]
+	input_path='/home/imchugh/Ozflux/Sites/Whroo/Data/Processed/2013'
+	input_file='Whroo_2013_L3.nc'
+	output_path='/home/imchugh/Documents/NEE plots'
+
+# Naming convention in input file
+[variables]
+	[[data]]
+		carbon_flux='Fc'
+		temperature='Ta'
+		solar_radiation='Fsd'
+		vapour_pressure_deficit='VPD'
+	[[QC]]
+		carbon_flux_QCFlag='Fc_QCFlag'
+		temperature_QCFlag='Ta_QCFlag'
+		solar_radiation_QCFlag='Fsd_QCFlag'
+		vapour_pressure_deficit_QCFlag='VPD_QCFlag'
+		
+# User settings
+[options]
+	radiation_threshold=10
+	nan_value=-9999
+	QC_accept_codes='[0,10]'
+	minimum_temperature_spread=5
+	time_step_night=10
+	time_step_day=10
+	window_size_night=5
+	window_size_day=5
+	reference_temperature=10
+	minimum_pct_annual_data=30
+	minimum_num_window_data=50
+	output_results='False'
+	output_plots='False'
+    VPD_threshold=1
+    flux_frequency=30
+    infile_type='OzFluxQC'
+    convert_to_PAR='True'
+    convert_to_umol='False'
+
+	
