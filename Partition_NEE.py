@@ -144,7 +144,7 @@ def get_dates(df,d_options):
     # Create datetime objects for valid dates and place into dictionary
     day_dates=pd.to_datetime([dt.datetime.strftime(i,'%Y-%m-%d') for i in df.asfreq('D').index])
     step_dates={'noct':day_dates[night_win/2+1:len(day_dates)-(night_win/2+1):night_step],
-             'day':day_dates[day_win/2+1:len(day_dates)-(day_win/2+1):day_step]}   
+                'day':day_dates[day_win/2+1:len(day_dates)-(day_win/2+1):day_step]}   
     
     return day_dates,step_dates
 #------------------------------------------------------------------------------
@@ -292,7 +292,7 @@ def optimise(df,years_df,params_df,dates,d_options,d_paths,noct_flag):
             # If either too few data or temperature range is less than 5C, abort optimisation
             if len(sub_df)>=min_n and sub_df[tempName].max()-sub_df[tempName].min()>=temp_spread:
 
-                 # Try nocturnal step optimisation - if causes error return nan array    
+                # Try nocturnal step optimisation - if causes error return nan array    
                 try:
                     params_df.loc[i,'rb_noct']=curve_fit(make_TRF_rb(params_df['Tref'].ix[i],params_df['Eo'].ix[i]),
                                                          sub_df[tempName],
