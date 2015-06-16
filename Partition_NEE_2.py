@@ -12,28 +12,6 @@ import os
 import sys
 
 #------------------------------------------------------------------------------
-# Data generation algorithms
-
-def make_data(data_d,Eo,rb,alpha,Aopt,k):
-
-    Aopt_VPD = Aopt * np.exp(-k * (data_d['VPD'] - 1))
-    index = np.where(data_d['VPD'] <= 1)[0]
-    Aopt_VPD[index] = Aopt
-    GPP = (alpha * data_d['PAR']) / (1 - (data_d['PAR'] / 2000) + (alpha * data_d['PAR'] / Aopt_VPD))
-    index = np.where(data_d['PAR'] < 10)[0]
-    GPP[index] = 0
-    Reco = rb * np.exp(Eo * (1 / (10 + 46.02) - 1 / (data_d['Ta'] + 46.02)))
-    return GPP + Reco
-    
-def random_error(data_d, stats_d):
-    
-    sigma_delta = np.where(data_d['NEE'] > 0, 
-                           data_d['NEE'] * stats_d['noct_slope'] + stats_d['noct_intcpt'],
-                           data_d['NEE'] * stats_d['day_slope'] + stats_d['day_intcpt'])     
-
-    return (np.random.laplace(0, sigma_delta) / 2).astype(np.float32)
-    
-#------------------------------------------------------------------------------
 # Data optimisation algorithms
     
 def TRF(data_d,Eo,rb):
@@ -44,12 +22,13 @@ def make_TRF(Eo):
         return rb * np.exp(Eo * (1 / (10 + 46.02) - 1 / (data_d['Ta'] + 46.02)))
     return TRF
 
-def make_LRF(Eo):
+def make_LRF_1(Eo):
         def LRF(data_d,rb,alpha,Aopt,k):
             Aopt_VPD = Aopt * np.exp(-k * (data_d['VPD'] - 1))
             index = np.where(data_d['VPD'] <= 1)[0]
             Aopt_VPD[index] = Aopt
-            GPP = (alpha * data_d['PAR']) / (1 - (data_d['PAR'] / 2000) + (alpha * data_d['PAR'] / Aopt_VPD))
+            GPP = (alpha * data_d['PAR']) / (1 - (data_d['PAR'] / 2000) + 
+                   (alpha * data_d['PAR'] / Aopt_VPD))
             index = np.where(data_d['PAR'] < 10)[0]
             GPP[index] = 0
             Reco = rb * np.exp(Eo * (1 / (10 + 46.02) - 1 / (data_d['Ta'] + 46.02)))
@@ -61,7 +40,8 @@ def make_LRF_2(Eo, k):
             Aopt_VPD = Aopt * np.exp(-k * (data_d['VPD'] - 1))
             index = np.where(data_d['VPD'] <= 1)[0]
             Aopt_VPD[index] = Aopt
-            GPP = (alpha * data_d['PAR']) / (1 - (data_d['PAR'] / 2000) + (alpha * data_d['PAR'] / Aopt_VPD))
+            GPP = (alpha * data_d['PAR']) / (1 - (data_d['PAR'] / 2000) + 
+                   (alpha * data_d['PAR'] / Aopt_VPD))
             index = np.where(data_d['PAR'] < 10)[0]
             GPP[index] = 0
             Reco = rb * np.exp(Eo * (1 / (10 + 46.02) - 1 / (data_d['Ta'] + 46.02)))
@@ -73,30 +53,26 @@ def make_LRF_3(Eo, k, alpha):
             Aopt_VPD = Aopt * np.exp(-k * (data_d['VPD'] - 1))
             index = np.where(data_d['VPD'] <= 1)[0]
             Aopt_VPD[index] = Aopt
-            GPP = (alpha * data_d['PAR']) / (1 - (data_d['PAR'] / 2000) + (alpha * data_d['PAR'] / Aopt_VPD))
+            GPP = (alpha * data_d['PAR']) / (1 - (data_d['PAR'] / 2000) + 
+                   (alpha * data_d['PAR'] / Aopt_VPD))
             index = np.where(data_d['PAR'] < 10)[0]
             GPP[index] = 0
             Reco = rb * np.exp(Eo * (1 / (10 + 46.02) - 1 / (data_d['Ta'] + 46.02)))
             return GPP + Reco
         return LRF
         
-        
 #------------------------------------------------------------------------------
-# Data optimisation procedure 
+# Data optimisation procedures
     
 def optimise_dark(drivers_d, response, params_d, priors_d, algo_num):
     
-    if not params_d == None:
-        Eo = params_d['Eo']
-    
-    prior_Eo = priors_d['Eo']
-    prior_rb = priors_d['rb']
-    
     try:
         if algo_num == 0:
-            params = curve_fit(TRF, drivers_d, response, p0 = [prior_Eo, prior_rb])[0]
+            params = curve_fit(TRF, drivers_d, response, 
+                               p0 = [priors_d['Eo'], priors_d['rb']])[0]
         elif algo_num == 1:
-            params = curve_fit(make_TRF(Eo), drivers_d, response, p0 = [prior_rb])[0]
+            params = curve_fit(make_TRF(params_d['Eo']), drivers_d, response, 
+                               p0 = [priors_d['rb']])[0]
     except RuntimeError:
         params = [np.nan, np.nan]
         
@@ -104,24 +80,25 @@ def optimise_dark(drivers_d, response, params_d, priors_d, algo_num):
 
 def optimise_light(drivers_d, response, params_d, priors_d, algo_num):
     
-    prior_rb = priors_d['rb']
-    prior_alpha = priors_d['alpha']
-    prior_Aopt = priors_d['Aopt']
-    prior_k = priors_d['k']
-      
     try:
         if algo_num == 0:
-            params = curve_fit(make_LRF(params_d['Eo']), 
+            params = curve_fit(make_LRF_1(params_d['Eo']), 
                                drivers_d, response, 
-                               p0 = [prior_rb, prior_alpha, prior_Aopt, prior_k])[0] 
+                               p0 = [priors_d['rb'], 
+                                     priors_d['alpha'], 
+                                     priors_d['Aopt'], 
+                                     priors_d['k']])[0] 
         elif algo_num == 1:
             params = curve_fit(make_LRF_2(params_d['Eo'], params_d['k']), 
                                drivers_d, response, 
-                               p0 = [prior_rb, prior_alpha, prior_Aopt])[0]
+                               p0 = [priors_d['rb'], 
+                                     priors_d['alpha'], 
+                                     priors_d['Aopt']])[0]
         elif algo_num == 2:
-            params = curve_fit(make_LRF_3(params_d['Eo'], params_d['k'], params_d['alpha']), 
+            params = curve_fit(make_LRF_3(params_d['Eo'], params_d['k'], 
+                                          params_d['alpha']), 
                                drivers_d, response, 
-                               p0 = [prior_rb, prior_Aopt])[0]
+                               p0 = [priors_d['rb'], priors_d['Aopt']])[0]
     except RuntimeError:
         params = [np.nan, np.nan, np.nan, np.nan]
 
@@ -129,14 +106,14 @@ def optimise_light(drivers_d, response, params_d, priors_d, algo_num):
 
 #------------------------------------------------------------------------------
 # Subsetting
-def subset_data(data_d, drivers, var_to_fit, noct_flag):
+def subset_data(data_d, drivers, NEE_name, noct_flag):
     
     if not type(drivers) == list:
         drivers = [drivers]
-    temp_array = np.empty([len(data_d[var_to_fit]), len(drivers) + 1])
+    temp_array = np.empty([len(data_d[NEE_name]), len(drivers) + 1])
     for i, var in enumerate(drivers):
         temp_array[:, i] = data_d[var]
-    temp_array[:, -1] = data_d[var_to_fit]
+    temp_array[:, -1] = data_d[NEE_name]
 
     if noct_flag:
         daynight_index = np.where(data_d['PAR'] < 10)[0]
@@ -173,7 +150,6 @@ def get_configs():
 
 
 # Choose variables and years
-var_to_fit = 'NEE_err'
 window = 15
 step = 5
 flux_interval_hrs = 0.5
@@ -196,23 +172,12 @@ min_pct_day_window = 50
 
 # Specify working directories and file names
 working_dir = '/home/imchugh/Analysis/Whroo/Data/Flux_and_met/'
-input_file = 'drivers.npz'
+input_file = 'synthetic_NEE_with_error.npz'
 
 # Get the data and make a dict-based data structure
 target = os.path.join(working_dir, input_file)
 data_arr = np.load(target)
 data_d = {item: data_arr[item] for item in data_arr.files}
-
-# Get the random error data and make a dict-based structure
-target = os.path.join(working_dir, random_error_file)
-data_arr = np.load(target)
-stats_d = {}
-for var in data_arr.files:
-    stats_d[var] = data_arr[var].item(0)
-
-# Generate NEE    
-data_d['NEE'] = make_data(data_d, Eo_init, rb_init, alpha_init, Aopt_init, k_init)
-data_d['NEE_err'] = data_d['NEE'] + random_error(data_d, stats_d)
 
 # Generate a date series
 # Note that we subtract one measurement interval in minutes from the date series because
@@ -233,10 +198,10 @@ priors_d['Eo'] = 100
 priors_d['k'] = 0
 priors_d['alpha'] = -0.01
 index = np.where(data_d['PAR'] < 10)[0]
-priors_d['rb'] = data_d[var_to_fit][index].mean()
+priors_d['rb'] = data_d[NEE_name][index].mean()
 index = np.where(data_d['PAR'] > 10)[0]
-priors_d['Aopt'] = (np.nanpercentile(data_d[var_to_fit][index], 5) - 
-                    np.nanpercentile(data_d[var_to_fit][index], 95))
+priors_d['Aopt'] = (np.nanpercentile(data_d[NEE_name][index], 5) - 
+                    np.nanpercentile(data_d[NEE_name][index], 95))
 
 # Get Eo for each year
 yearsEo_d = {}
@@ -249,7 +214,7 @@ for yr in year_list:
     temp_d = {}
     for item in data_d.keys():
         temp_d[item] = data_d[item][index]
-    drivers_d, response, pct = subset_data(temp_d, [T_name], var_to_fit, True)
+    drivers_d, response, pct = subset_data(temp_d, [T_name], NEE_name, True)
     if pct > min_pct_annual:
         params = optimise_dark(drivers_d, response, None, priors_d, 0)
     yearsEo_d[str(yr)] = params[0]
@@ -347,7 +312,7 @@ for date in step_whole_day_dates:
     Eo_year = yearsEo_d[str(date_time.year)] 
 
     # Do fitting to subsets - dark...
-    drivers_d, response, pct = subset_data(sub_d, [T_name], var_to_fit, True)
+    drivers_d, response, pct = subset_data(sub_d, [T_name], NEE_name, True)
     
     if pct > min_pct_noct_window:
         params = optimise_dark(drivers_d, response, params_d, priors_d, 1)
@@ -356,7 +321,7 @@ for date in step_whole_day_dates:
     rb_noct = params[0]
     
     # ... then light
-    drivers_d, response, pct = subset_data(sub_d, [PAR_name, T_name, VPD_name], var_to_fit, False)
+    drivers_d, response, pct = subset_data(sub_d, [PAR_name, T_name, VPD_name], NEE_name, False)
     
     if pct > min_pct_day_window:
         
