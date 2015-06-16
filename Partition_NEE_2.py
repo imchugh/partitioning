@@ -4,22 +4,24 @@ Created on Wed May 27 09:28:52 2015
 
 @author: imchugh
 """
-
+import Tkinter, tkFileDialog
+from configobj import ConfigObj
 import numpy as np
 from scipy.optimize import curve_fit
 import datetime as dt
 import os
 import sys
+import pdb
 
 #------------------------------------------------------------------------------
 # Data optimisation algorithms
     
 def TRF(data_d,Eo,rb):
-    return rb * np.exp(Eo * (1 / (10 + 46.02) - 1 / (data_d['Ta'] + 46.02)))
+    return rb * np.exp(Eo * (1 / (10 + 46.02) - 1 / (data_d['TempC'] + 46.02)))
 
 def make_TRF(Eo):
     def TRF(data_d,rb):
-        return rb * np.exp(Eo * (1 / (10 + 46.02) - 1 / (data_d['Ta'] + 46.02)))
+        return rb * np.exp(Eo * (1 / (10 + 46.02) - 1 / (data_d['TempC'] + 46.02)))
     return TRF
 
 def make_LRF_1(Eo):
@@ -31,7 +33,7 @@ def make_LRF_1(Eo):
                    (alpha * data_d['PAR'] / Aopt_VPD))
             index = np.where(data_d['PAR'] < 10)[0]
             GPP[index] = 0
-            Reco = rb * np.exp(Eo * (1 / (10 + 46.02) - 1 / (data_d['Ta'] + 46.02)))
+            Reco = rb * np.exp(Eo * (1 / (10 + 46.02) - 1 / (data_d['TempC'] + 46.02)))
             return GPP + Reco
         return LRF
 
@@ -44,7 +46,7 @@ def make_LRF_2(Eo, k):
                    (alpha * data_d['PAR'] / Aopt_VPD))
             index = np.where(data_d['PAR'] < 10)[0]
             GPP[index] = 0
-            Reco = rb * np.exp(Eo * (1 / (10 + 46.02) - 1 / (data_d['Ta'] + 46.02)))
+            Reco = rb * np.exp(Eo * (1 / (10 + 46.02) - 1 / (data_d['TempC'] + 46.02)))
             return GPP + Reco
         return LRF
 
@@ -57,7 +59,7 @@ def make_LRF_3(Eo, k, alpha):
                    (alpha * data_d['PAR'] / Aopt_VPD))
             index = np.where(data_d['PAR'] < 10)[0]
             GPP[index] = 0
-            Reco = rb * np.exp(Eo * (1 / (10 + 46.02) - 1 / (data_d['Ta'] + 46.02)))
+            Reco = rb * np.exp(Eo * (1 / (10 + 46.02) - 1 / (data_d['TempC'] + 46.02)))
             return GPP + Reco
         return LRF
         
@@ -138,46 +140,92 @@ def subset_data(data_d, drivers, NEE_name, noct_flag):
     return drivers_d, response, percent_avail
     
 #------------------------------------------------------------------------------
-# Open configuration file and 
+# Open configuration and build dictionaries of config file contents
 def get_configs():
     
+    # Prompt user for configuration file and get it
     root = Tkinter.Tk(); root.withdraw()
-    file_in = tkFileDialog.askopenfilename(initialdir='')
+    cfName = tkFileDialog.askopenfilename(initialdir='')
     root.destroy()
-    return file_in
+    cf=ConfigObj(cfName)
+    
+    # Map input file variable names to hard-coded names used in this script
+    vars_d = dict(cf['variables'])
+    temp_d = {'carbon_flux': 'NEE', 
+              'solar_radiation': 'PAR', 
+              'temperature': 'TempC', 
+              'vapour_pressure_deficit': 'VPD',
+              'date_time': 'date_time'}
+    vars_d = {temp_d[i]: vars_d['data'][i] for i in temp_d.keys()}
+    
+    # Prepare dictionary of user settings - drop strings or change to int / float
+    options_d = dict(cf['options'])
+    for key in options_d:
+        if options_d[key].isdigit():
+            options_d[key] = int(options_d[key])
+        else:
+            try:
+                options_d[key] = float(options_d[key])
+            except ValueError:
+                continue
+    
+    # Set input file and output path
+    paths_d = {}    
+    paths_d['file_in'] = os.path.join(cf['files']['input_path'],cf['files']['input_file'])
+    paths_d['results_output_path'] = os.path.join(cf['files']['output_path'],'Results')
+    paths_d['plot_output_path'] = os.path.join(cf['files']['output_path'],'Plots')
+        
+    return paths_d, vars_d, options_d
+
+def get_data(paths_d, vars_d):
+    
+    data_arr = np.load(paths_d['file_in'])
+    data_d = {varName: data_arr[vars_d[varName]] for varName in vars_d.keys()}
+    return data_d
+
+# Create a dictionary with initial guesses for parameters
+def make_initial_guess_dict(data_d):
+
+    d = {}
+    d['Eo'] = 100
+    d['k'] = 0
+    d['alpha'] = -0.01
+    index = np.where(data_d['PAR'] < 10)[0]
+    d['rb'] = data_d['NEE'][index].mean()
+    index = np.where(data_d['PAR'] > 10)[0]
+    d['Aopt'] = (np.nanpercentile(data_d['NEE'][index], 5) - 
+                 np.nanpercentile(data_d['NEE'][index], 95))
+    return d
+
+
 
 # Main code starts here
-
+paths_d, vars_d, options_d = get_configs()
 
 # Choose variables and years
 window = 15
 step = 5
 flux_interval_hrs = 0.5
 
-# Initialise parameters for data generation
-Eo_init = 200
-rb_init = 1.4
-alpha_init = -0.1
-Aopt_init = -16.0
-k_init = 0.2
-
-VPD_name = 'VPD'
-T_name = 'Ta'
-PAR_name = 'PAR'
-NEE_name = 'NEE'
+#VPD_name = variables_d['VPD']
+#T_name = 'TempC'
+#PAR_name = 'PAR'
+#NEE_name = 'NEE_err'
 
 min_pct_annual = 30
 min_pct_noct_window = 30
 min_pct_day_window = 50
 
-# Specify working directories and file names
-working_dir = '/home/imchugh/Analysis/Whroo/Data/Flux_and_met/'
-input_file = 'synthetic_NEE_with_error.npz'
+## Specify working directories and file names
+#working_dir = '/home/imchugh/Analysis/Whroo/Data/Flux_and_met/'
+#input_file = 'synthetic_NEE_with_error.npz'
+#
+## Get the data and make a dict-based data structure
+#target = os.path.join(working_dir, input_file)
+#data_arr = np.load(target)
+#data_d = {item: data_arr[item] for item in data_arr.files}
 
-# Get the data and make a dict-based data structure
-target = os.path.join(working_dir, input_file)
-data_arr = np.load(target)
-data_d = {item: data_arr[item] for item in data_arr.files}
+data_d = get_data(paths_d, vars_d)
 
 # Generate a date series
 # Note that we subtract one measurement interval in minutes from the date series because
@@ -190,18 +238,11 @@ data_d = {item: data_arr[item] for item in data_arr.files}
 date_arr = np.array([dt.datetime.strptime(i, '%Y-%m-%d %H:%M:%S') for i in data_d['date_time']])
 date_arr = date_arr - dt.timedelta(minutes = 60 * flux_interval_hrs)
 
+# Create a dictionary containing initial guesses for each parameter
+priors_d = make_initial_guess_dict(data_d)
 # Make the data array
 
-# Create a dictionary with initial guesses for parameters
-priors_d = {}
-priors_d['Eo'] = 100
-priors_d['k'] = 0
-priors_d['alpha'] = -0.01
-index = np.where(data_d['PAR'] < 10)[0]
-priors_d['rb'] = data_d[NEE_name][index].mean()
-index = np.where(data_d['PAR'] > 10)[0]
-priors_d['Aopt'] = (np.nanpercentile(data_d[NEE_name][index], 5) - 
-                    np.nanpercentile(data_d[NEE_name][index], 95))
+
 
 # Get Eo for each year
 yearsEo_d = {}
@@ -214,7 +255,7 @@ for yr in year_list:
     temp_d = {}
     for item in data_d.keys():
         temp_d[item] = data_d[item][index]
-    drivers_d, response, pct = subset_data(temp_d, [T_name], NEE_name, True)
+    drivers_d, response, pct = subset_data(temp_d, ['TempC'], 'NEE', True)
     if pct > min_pct_annual:
         params = optimise_dark(drivers_d, response, None, priors_d, 0)
     yearsEo_d[str(yr)] = params[0]
@@ -290,8 +331,6 @@ initialise_alpha = True
 
 for date in step_whole_day_dates:
     
-    print date    
-    
     if initialise_alpha:
         prev_alpha = 0
         initialise_alpha = False        
@@ -312,7 +351,7 @@ for date in step_whole_day_dates:
     Eo_year = yearsEo_d[str(date_time.year)] 
 
     # Do fitting to subsets - dark...
-    drivers_d, response, pct = subset_data(sub_d, [T_name], NEE_name, True)
+    drivers_d, response, pct = subset_data(sub_d, ['TempC'], 'NEE', True)
     
     if pct > min_pct_noct_window:
         params = optimise_dark(drivers_d, response, params_d, priors_d, 1)
@@ -321,7 +360,7 @@ for date in step_whole_day_dates:
     rb_noct = params[0]
     
     # ... then light
-    drivers_d, response, pct = subset_data(sub_d, [PAR_name, T_name, VPD_name], NEE_name, False)
+    drivers_d, response, pct = subset_data(sub_d, ['PAR', 'TempC', 'VPD'], 'NEE', False)
     
     if pct > min_pct_day_window:
         
