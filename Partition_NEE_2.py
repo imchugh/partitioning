@@ -346,74 +346,76 @@ def main():
     # Initialise result arrays and step through data windows, find parameters for each
     rslt_arr = np.empty([len(all_dates_array), 6])
     rslt_arr[:] = np.nan
-    
-    initialise_alpha = True
-    
+        
     for date in step_dates_array:
         
-        if initialise_alpha:
-            prev_alpha = 0
-            initialise_alpha = False        
-        
-        
         sub_d = subset_window(data_d, datetime_array, date, options_d)
+        
+        
+        
+        params_est(params_d, yearsEo_d, options_d, priors_d, sub_d, all_dates_array, rslt_arr, date)
     
-            
+def params_est(params_d, yearsEo_d, options_d, priors_d, sub_d, all_dates_array, rslt_arr, date):
+
+    prev_alpha = params_d['alpha']
+    min_pct_noct = options_d['minimum_pct_noct_window']
+    min_pct_day = options_d['minimum_pct_day_window']
     
-        # Get Eo for the relevant year and write to the parameters dictionary
-        params_d['Eo'] = yearsEo_d[str(date.year)] 
-        Eo_year = yearsEo_d[str(date.year)] 
+    # Get Eo for the relevant year and write to the parameters dictionary
+    params_d['Eo'] = yearsEo_d[str(date.year)] 
+
+    # Get dark subset and fit L&T parameters
+    drivers_d, response, pct = subset_daynight(sub_d, ['TempC'], 'NEE', True)
     
-        # Do fitting to subsets - dark...
-        drivers_d, response, pct = subset_daynight(sub_d, ['TempC'], 'NEE', True)
+    if pct > min_pct_noct:
+        params = optimise_dark(drivers_d, response, params_d, priors_d, 1)
+    else:
+        params = np.nan
+    rb_noct = params[0]
+    
+    # Get light subset and fit light response and L&T parameters
+    drivers_d, response, pct = subset_daynight(sub_d, ['PAR', 'TempC', 'VPD'], 'NEE', False)
+    
+    if pct > min_pct_day:
         
-        if pct > min_pct_noct_window:
-            params = optimise_dark(drivers_d, response, params_d, priors_d, 1)
-        else:
-            params = np.nan
-        rb_noct = params[0]
+        params = optimise_light(drivers_d, response, params_d, priors_d, 0)
+        rb_day, alpha, Aopt, k = params[0], params[1], params[2], params[3]
+               
+        # If nan returned or a negative VPD coefficient, rerun with VPD set to zero
+        if ((params[3] == np.nan) | (params[3] < 0)):
+            print 'Value of k unacceptable - setting to zero'
+            k = 0
+            params = optimise_light(drivers_d, response, params_d, priors_d, 1)
+            rb_day, alpha, Aopt = params[0], params[1], params[2]
+    
+        # If a positive or otherwise out of range value of alpha was returned,
+        # rerun with previous value of alpha if available, otherwise set to zero
+        if ((params[1] == np.nan) | (params[1] > 0) | (params[1] < -0.22)):
+            print 'Value of alpha unacceptable - using previous estimate and recalculating other parameters'
+            alpha = prev_alpha
+            params_d['alpha'] = alpha
+            params = optimise_light(drivers_d, response, params_d, priors_d, 2)
+            rb_day, Aopt = params[0], params[1]
         
-        # ... then light
-        drivers_d, response, pct = subset_daynight(sub_d, ['PAR', 'TempC', 'VPD'], 'NEE', False)
-        
-        if pct > min_pct_day_window:
-            
-            params = optimise_light(drivers_d, response, params_d, priors_d, 0)
-            rb_day, alpha, Aopt, k = params[0], params[1], params[2], params[3]
-                   
-            # If nan returned or a negative VPD coefficient, rerun with VPD set to zero
-            if ((params[3] == np.nan) | (params[3] < 0)):
-                print 'Value of k unacceptable - setting to zero'
-                k = 0
-                params = optimise_light(drivers_d, response, params_d, priors_d, 1)
-                rb_day, alpha, Aopt = params[0], params[1], params[2]
-        
-            # If a positive or otherwise out of range value of alpha was returned,
-            # rerun with previous value of alpha if available, otherwise set to zero
-            if ((params[1] == np.nan) | (params[1] > 0) | (params[1] < -0.22)):
-                print 'Value of alpha unacceptable - using previous estimate and recalculating other parameters'
-                alpha = prev_alpha
-                params_d['alpha'] = alpha
-                params = optimise_light(drivers_d, response, params_d, priors_d, 2)
-                rb_day, Aopt = params[0], params[1]
-            
-            # If Aopt or rb is of the wrong sign, reject all parameters
-            if Aopt > 0 or rb_day < 0:
-                print 'Value of Aopt or rb has wrong sign - rejecting all parameters'
-                params = [np.nan, np.nan, np.nan, np.nan]
-                rb_day, alpha, Aopt, k = params[0], params[1], params[2], params[3]
-            
-            params = [rb_day, alpha, Aopt, k]        
-            
-            # Increment the trailing alpha parameter
-            prev_alpha = alpha
-        
-        else:
-            
+        # If Aopt or rb is of the wrong sign, reject all parameters
+        if Aopt > 0 or rb_day < 0:
+            print 'Value of Aopt or rb has wrong sign - rejecting all parameters'
             params = [np.nan, np.nan, np.nan, np.nan]
             rb_day, alpha, Aopt, k = params[0], params[1], params[2], params[3]
-            
-        # Insert into results array
-        params = np.append(np.array([Eo_year, rb_noct]), params)
-        index = np.where(all_dates_array == date)
-        rslt_arr[index, :] = params
+        
+        params = [rb_day, alpha, Aopt, k]        
+        
+    else:
+        
+        params = [np.nan, np.nan, np.nan, np.nan]
+        rb_day, alpha, Aopt, k = params[0], params[1], params[2], params[3]
+    
+    if not np.isnan(alpha):
+        params_d['alpha'] = alpha
+    else:
+        params_d['alpha'] = 0
+        
+    # Insert into results array
+    params = np.append(np.array([params_d['Eo'], rb_noct]), params)
+    index = np.where(all_dates_array == date)
+    rslt_arr[index, :] = params
