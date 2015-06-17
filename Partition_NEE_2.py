@@ -311,14 +311,18 @@ def make_initial_guess_dict(data_d):
                  np.nanpercentile(data_d['NEE'][index], 95))
     return d
 
-def annual_Eo(data_d, prior_params_d, options_d, date_array):
+def annual_Eo(data_d, prior_params_d, options_d, 
+              datetime_array, all_dates_array, rslt_array):
     
     # Create a list of the number of years
-    year_array = np.array([i.year for i in date_array])
+    year_array = np.array([i.year for i in datetime_array])
     year_list = list(set(year_array))
     
     # Get Eo for each year and compile dictionary
     yearsEo_d = {}
+    Eo_pass_keys = []
+    Eo_range_fail_keys = []
+    Eo_nan_fail_keys = []
     print 'Eo optimised using whole year is as follows:'
     for yr in year_list:
         index = np.where(year_array == yr)
@@ -326,20 +330,19 @@ def annual_Eo(data_d, prior_params_d, options_d, date_array):
         for item in data_d.keys():
             sub_d[item] = data_d[item][index]
         params = optimise_dark_annual(sub_d, prior_params_d, options_d)
-        yearsEo_d[str(yr)] = params[0]
-        print '    - ' + str(yr) + ': ' + str(round(params[0]))
-    
-    # Do QC on Eo
-    Eo_pass_keys = []
-    Eo_range_fail_keys = []
-    Eo_nan_fail_keys = []
-    for yr in yearsEo_d.keys():
-        if np.isnan(yearsEo_d[yr]):
+        Eo = params[0]
+        yearsEo_d[str(yr)] = Eo
+        if np.isnan(Eo):
             Eo_nan_fail_keys.append(yr)
-        elif ((yearsEo_d[yr] < 50) | (yearsEo_d[yr] > 400)):
+        elif ((Eo < 50) | (Eo > 400)):
             Eo_range_fail_keys.append(yr)
         else:
             Eo_pass_keys.append(yr)
+
+        print '    - ' + str(yr) + ': ' + str(round(params[0]))
+    
+    # Do QC on Eo
+    yearsQC_d = {str(yr): 0 for yr in year_list}
     if len(Eo_pass_keys) != len(yearsEo_d):
         if len(Eo_nan_fail_keys) == len(yearsEo_d):
             print 'Could not find any values of Eo for any years! Exiting...'
@@ -348,12 +351,18 @@ def annual_Eo(data_d, prior_params_d, options_d, date_array):
             Eo_mean = [yearsEo_d[i] for i in Eo_pass_keys].mean()
             for i in (Eo_range_fail_keys + Eo_nan_fail_keys):
                 yearsEo_d[i] = Eo_mean
+                yearsQC_d[i] = 1
             print 'Eo optimisation failed for the following years: '
             print [i for i in (Eo_range_fail_keys + Eo_nan_fail_keys)]
             print 'Eo for these years estimated from the mean of all other years'
         else:
             for i in Eo_range_fail_keys:
                 yearsEo_d[i] == 50 if yearsEo_d[i] < 50 else 400
+                yearsQC_d[i] = 2
+            Eo_mean = [yearsEo_d[i] for i in Eo_range_fail_keys].mean()
+            for i in Eo_nan_fail_keys:
+                yearsEo_d[i] = Eo_mean
+                yearsQC_d[i] = 3
             print 'Warning! Eo estimates were out of range for all years'
             print 'Low estimates have been set to lower limit (50);'
             print 'High estimates have been set to upper limit (400);'
@@ -361,7 +370,14 @@ def annual_Eo(data_d, prior_params_d, options_d, date_array):
     else:
         print 'Eo estimates passed QC for all years'
     
-    return yearsEo_d
+    # Write to results array
+    year_array = np.array([i.year for i in all_dates_array])
+    for yr in year_list:
+        index = np.where(year_array == yr)
+        rslt_array[index, 0] = yearsEo_d[str(yr)]
+        rslt_array[index, 6] = yearsQC_d[str(yr)]
+    
+    return
 
 def get_dates(dateStr_array, options_d):
     
@@ -413,21 +429,21 @@ def get_dates(dateStr_array, options_d):
 
 def make_error_code_dict():
     
-    msg_d = {1:'Value of k failed range check - setting to zero and ' \
-               'recalculating other parameters',
-             2:'Value of alpha failed range check - using previous ' \
-               'estimate and recalculating other parameters',
-             3:'Optimisation reached maximum number of interations' \
-               'without convergence',
-             4:'Value of Aopt and rb have wrong sign - ' \
-               'rejecting all parameters',
-             5:'Value of Aopt has wrong sign - rejecting all parameters',
-             6:'Value of daytime rb has wrong sign - rejecting all parameters',
-             7:'Value of nocturnal rb has wrong sign - rejecting',
-             8:'Data did not pass minimum percentage threshold - ' \
-               'skipping optimisation'}
+    d = {1:'Value of k failed range check - setting to zero and ' \
+           'recalculating other parameters',
+         2:'Value of alpha failed range check - using previous ' \
+           'estimate and recalculating other parameters',
+         3:'Optimisation reached maximum number of interations' \
+           'without convergence',
+         4:'Value of Aopt and rb have wrong sign - ' \
+           'rejecting all parameters',
+         5:'Value of Aopt has wrong sign - rejecting all parameters',
+         6:'Value of daytime rb has wrong sign - rejecting all parameters',
+         7:'Value of nocturnal rb has wrong sign - rejecting',
+         8:'Data did not pass minimum percentage threshold - ' \
+           'skipping optimisation'}
     
-    return msg_d
+    return d
 
 # Main code starts here
 def main():
@@ -456,9 +472,12 @@ def main():
     rslt_array = np.empty([len(all_dates_array), 9])
     rslt_array[:,1:] = np.nan    
 
-    # Get the annual estimates of Eo
-    yearsEo_d = annual_Eo(data_d, prior_params_d, options_d, datetime_array)
-#    annual_Eo(data_d, prior_params_d, options_d, datetime_array, rslt_array)
+    # Get the annual estimates of Eo and write to the results array
+#    yearsEo_d = annual_Eo(data_d, prior_params_d, options_d, datetime_array)
+    annual_Eo(data_d, prior_params_d, options_d, 
+              datetime_array, all_dates_array, rslt_array)
+
+    return rslt_array
 
     # Do optimisation for each window and write to result array
     for date in step_dates_array:
@@ -476,7 +495,6 @@ def main():
         dark_rb_param, dark_rb_error_state = optimise_dark(sub_d, default_params_d, 
                                                       prior_params_d, options_d)        
         rslt_array[index, 1] = dark_rb_param
-        # Dark Eo error state at [,6]
         rslt_array[index, 7] = dark_rb_error_state
         light_params, light_error_state = optimise_light(sub_d, default_params_d, 
                                                          prior_params_d, options_d)
