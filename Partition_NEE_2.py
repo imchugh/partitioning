@@ -73,21 +73,28 @@ def optimise_dark(sub_d, default_params_d, prior_params_d, options_d):
     drivers_d, response, pct = subset_daynight(sub_d, ['TempC'], 'NEE', noct_flag)
     
     # If minimum data criterion satisfied, fit L&T parameters
-    if pct > options_d['minimum_pct_noct_window']:    
+    if pct > options_d['minimum_pct_noct_window']:
+
+        # Initialise error state variable
+        error_state = 0              
+        
         try:
             params = curve_fit(make_TRF(default_params_d['Eo']), drivers_d, response, 
                                p0 = [prior_params_d['rb']])[0]
-        except IndexError:
-            pdb.set_trace()
         except RuntimeError:
+            params = [np.nan]
+    
+        # If negative rb returned, set to nan
+        if params[0] < 0:
+            error_state = 6
             params = [np.nan]
 
     # If minimum data criterion not satisfied 
     else:
-        
+        error_state = 7       
         params = [np.nan]
         
-    return params
+    return params, error_state
 
 # Nighttime for establishment of annual Eo
 def optimise_dark_annual(sub_d, prior_params_d, options_d):
@@ -123,6 +130,9 @@ def optimise_light(sub_d, default_params_d, prior_params_d, options_d):
     # If minimum data criterion satisfied, fit light response and L&T parameters
     if pct > options_d['minimum_pct_day_window']:
         
+        # Initialise error state variable
+        error_state = 0        
+        
         try:
             params = curve_fit(make_LRF_1(default_params_d['Eo']), 
                                drivers_d, response, 
@@ -136,8 +146,7 @@ def optimise_light(sub_d, default_params_d, prior_params_d, options_d):
                
         # If nan returned or a negative VPD coefficient, rerun with VPD set to zero
         if ((params[3] == np.nan) | (params[3] < 0)):
-            print 'Value of k unacceptable - setting to zero and recalculating ' \
-                  'other parameters'
+            error_state = 1            
             k = 0
             try:
                 params = curve_fit(make_LRF_2(default_params_d['Eo'], default_params_d['k']), 
@@ -152,8 +161,7 @@ def optimise_light(sub_d, default_params_d, prior_params_d, options_d):
         # If a nan, positive or otherwise out of range value of alpha was returned,
         # rerun with previous value of alpha if available, otherwise set to zero
         if ((params[1] == np.nan) | (params[1] > 0) | (params[1] < -0.22)):
-            print 'Value of alpha unacceptable - using previous estimate and ' \
-                  'recalculating other parameters'
+            error_state = 2   
             k = 0
             alpha = default_params_d['alpha']
             try:            
@@ -162,21 +170,28 @@ def optimise_light(sub_d, default_params_d, prior_params_d, options_d):
                                    drivers_d, response, 
                                    p0 = [prior_params_d['rb'], prior_params_d['Aopt']])[0]
             except RuntimeError:
+                error_state = 3
                 params = [np.nan, np.nan]
             rb_day, Aopt = params[0], params[1]
         
         # If Aopt or rb is of the wrong sign, reject all parameters
         if Aopt > 0 or rb_day < 0:
-            print 'Value of Aopt or rb has wrong sign - rejecting all parameters'
+            if Aopt > 0 and rb_day < 0:
+                error_state = 4
+            elif Aopt > 0:
+                error_state = 5
+            else:
+                error_state = 6
             params = [np.nan, np.nan, np.nan, np.nan]
             rb_day, alpha, Aopt, k = params[0], params[1], params[2], params[3]
         
-        params = [rb_day, alpha, Aopt, k]        
-    
     # If minimum data criterion not satisfied    
     else:
         
+        error_state = 8
         rb_day, alpha, Aopt, k = np.nan, np.nan, np.nan, np.nan
+    
+    params = [rb_day, alpha, Aopt, k]        
     
     # If a valid estimate of alpha is found, write to default params dictionary
     if not np.isnan(alpha):
@@ -184,7 +199,7 @@ def optimise_light(sub_d, default_params_d, prior_params_d, options_d):
     else:
         default_params_d['alpha'] = 0    
 
-    return np.array(params)
+    return np.array(params), error_state
 
 #------------------------------------------------------------------------------
 # Subsetting of day and night (remove all records with bad data in ANY variable)
@@ -296,7 +311,7 @@ def make_initial_guess_dict(data_d):
                  np.nanpercentile(data_d['NEE'][index], 95))
     return d
 
-def annual_Eo(data_d, date_array, prior_params_d, options_d):
+def annual_Eo(data_d, prior_params_d, options_d, date_array):
     
     # Create a list of the number of years
     year_array = np.array([i.year for i in date_array])
@@ -396,6 +411,24 @@ def get_dates(dateStr_array, options_d):
     
     return date_array, all_dates_array, step_dates_array
 
+def make_error_code_dict():
+    
+    msg_d = {1:'Value of k failed range check - setting to zero and ' \
+               'recalculating other parameters',
+             2:'Value of alpha failed range check - using previous ' \
+               'estimate and recalculating other parameters',
+             3:'Optimisation reached maximum number of interations' \
+               'without convergence',
+             4:'Value of Aopt and rb have wrong sign - ' \
+               'rejecting all parameters',
+             5:'Value of Aopt has wrong sign - rejecting all parameters',
+             6:'Value of daytime rb has wrong sign - rejecting all parameters',
+             7:'Value of nocturnal rb has wrong sign - rejecting',
+             8:'Data did not pass minimum percentage threshold - ' \
+               'skipping optimisation'}
+    
+    return msg_d
+
 # Main code starts here
 def main():
     
@@ -412,16 +445,20 @@ def main():
     # (used when optimisation fails)
     default_params_d = {'alpha': 0, 'k': 0}
     
+    # Create dictionary containing error messages with error codes as keys
+    msg_d = make_error_code_dict()
+    
     # Get arrays of all datetimes, all dates and stepped dates
     datetime_array, all_dates_array, step_dates_array = get_dates(data_d.pop('date_time'), 
                                                                   options_d)    
 
-    # Get the annual estimates of Eo
-    yearsEo_d = annual_Eo(data_d, datetime_array, prior_params_d, options_d)
-
     # Initialise result array
-    rslt_array = np.empty([len(all_dates_array), 6])
-    rslt_array[:] = np.nan
+    rslt_array = np.empty([len(all_dates_array), 9])
+    rslt_array[:,1:] = np.nan    
+
+    # Get the annual estimates of Eo
+    yearsEo_d = annual_Eo(data_d, prior_params_d, options_d, datetime_array)
+#    annual_Eo(data_d, prior_params_d, options_d, datetime_array, rslt_array)
 
     # Do optimisation for each window and write to result array
     for date in step_dates_array:
@@ -430,16 +467,28 @@ def main():
         sub_d = subset_window(data_d, datetime_array, date, options_d)
         
         # Get Eo for the relevant year and write to the parameters dictionary
-        # and the results array
         Eo_current_year = yearsEo_d[str(date.year)]
         default_params_d['Eo'] = Eo_current_year
         
         # Get the parameters and write to the results array
         index = np.where(all_dates_array == date)
         rslt_array[index, 0] = Eo_current_year
-        params = optimise_dark(sub_d, default_params_d, prior_params_d, options_d)        
-        rslt_array[index, 1:] = params
-        params = optimise_light(sub_d, default_params_d, prior_params_d, options_d)
-        rslt_array[index, 2:] = params
+        dark_rb_param, dark_rb_error_state = optimise_dark(sub_d, default_params_d, 
+                                                      prior_params_d, options_d)        
+        rslt_array[index, 1] = dark_rb_param
+        # Dark Eo error state at [,6]
+        rslt_array[index, 7] = dark_rb_error_state
+        light_params, light_error_state = optimise_light(sub_d, default_params_d, 
+                                                         prior_params_d, options_d)
+        rslt_array[index, 2:6] = light_params
+        rslt_array[index, 8] = light_error_state
+        
+        # Print error messages if any
+        if dark_rb_error_state != 0 or light_error_state != 0:
+            print 'For ' + dt.datetime.strftime(date, '%Y-%m-%d') + ':'
+            if dark_rb_error_state != 0:            
+                print msg_d[dark_rb_error_state]
+            if light_error_state != 0:
+                print msg_d[light_error_state]
      
     return rslt_array
