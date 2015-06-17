@@ -66,31 +66,62 @@ def make_LRF_3(Eo, k, alpha):
 #------------------------------------------------------------------------------
 # Data optimisation procedures
     
-def optimise_dark(drivers_d, response, default_params_d, prior_params_d, algo_num):
+def optimise_dark(sub_d, default_params_d, prior_params_d, options_d):
+
+    # Get dark subset
+    noct_flag = True
+    drivers_d, response, pct = subset_daynight(sub_d, ['TempC'], 'NEE', noct_flag)
     
-    try:
-        if algo_num == 0:
-            params = curve_fit(TRF, drivers_d, response, 
-                               p0 = [prior_params_d['Eo'], prior_params_d['rb']])[0]
-        elif algo_num == 1:
+    # If minimum data criterion satisfied, fit L&T parameters
+    if pct > options_d['minimum_pct_noct_window']:    
+        try:
             params = curve_fit(make_TRF(default_params_d['Eo']), drivers_d, response, 
                                p0 = [prior_params_d['rb']])[0]
-    except RuntimeError:
-        params = [np.nan, np.nan]
+        except IndexError:
+            pdb.set_trace()
+        except RuntimeError:
+            params = [np.nan]
+
+    # If minimum data criterion not satisfied 
+    else:
+        
+        params = [np.nan]
         
     return params
 
+# Nighttime for establishment of annual Eo
+def optimise_dark_annual(sub_d, prior_params_d, options_d):
+    
+    # Get dark subset
+    noct_flag = True
+    drivers_d, response, pct = subset_daynight(sub_d, ['TempC'], 'NEE', noct_flag)
+    
+    # If minimum data criterion satisfied, fit L&T parameters
+    if pct > options_d['minimum_pct_annual']:
+        try:
+            params = curve_fit(TRF, drivers_d, response, 
+                               p0 = [prior_params_d['Eo'], 
+                                     prior_params_d['rb']])[0]
+        except RuntimeError:
+            params = [np.nan, np.nan]
+    
+    # If minimum data criterion not satisfied 
+    else:
+        
+        params = [np.nan, np.nan]
+    
+    return params
+
+# Daytime
 def optimise_light(sub_d, default_params_d, prior_params_d, options_d):
-    
-    prev_alpha = default_params_d['alpha']
-    min_pct_day = options_d['minimum_pct_day_window']
-    
-    # Get light subset and fit light response and L&T parameters
+        
+    # Get light subset 
     noct_flag = False
-    drivers_d, response, pct = subset_daynight(sub_d, ['PAR', 'TempC', 'VPD'], 'NEE', noct_flag)
+    drivers_d, response, pct = subset_daynight(sub_d, ['PAR', 'TempC', 'VPD'], 
+                                               'NEE', noct_flag)
     
-    # If minimum data criterion satisfied
-    if pct > min_pct_day:
+    # If minimum data criterion satisfied, fit light response and L&T parameters
+    if pct > options_d['minimum_pct_day_window']:
         
         try:
             params = curve_fit(make_LRF_1(default_params_d['Eo']), 
@@ -105,7 +136,8 @@ def optimise_light(sub_d, default_params_d, prior_params_d, options_d):
                
         # If nan returned or a negative VPD coefficient, rerun with VPD set to zero
         if ((params[3] == np.nan) | (params[3] < 0)):
-            print 'Value of k unacceptable - setting to zero'
+            print 'Value of k unacceptable - setting to zero and recalculating ' \
+                  'other parameters'
             k = 0
             try:
                 params = curve_fit(make_LRF_2(default_params_d['Eo'], default_params_d['k']), 
@@ -120,9 +152,10 @@ def optimise_light(sub_d, default_params_d, prior_params_d, options_d):
         # If a nan, positive or otherwise out of range value of alpha was returned,
         # rerun with previous value of alpha if available, otherwise set to zero
         if ((params[1] == np.nan) | (params[1] > 0) | (params[1] < -0.22)):
-            print 'Value of alpha unacceptable - using previous estimate and' \
+            print 'Value of alpha unacceptable - using previous estimate and ' \
                   'recalculating other parameters'
-            alpha = prev_alpha
+            k = 0
+            alpha = default_params_d['alpha']
             try:            
                 params = curve_fit(make_LRF_3(default_params_d['Eo'], default_params_d['k'], 
                                               default_params_d['alpha']), 
@@ -263,23 +296,21 @@ def make_initial_guess_dict(data_d):
                  np.nanpercentile(data_d['NEE'][index], 95))
     return d
 
-def annual_Eo(data_d, date_array, options_d, prior_params_d):
+def annual_Eo(data_d, date_array, prior_params_d, options_d):
     
     # Create a list of the number of years
     year_array = np.array([i.year for i in date_array])
     year_list = list(set(year_array))
     
-    # Get Eo for each year
+    # Get Eo for each year and compile dictionary
     yearsEo_d = {}
     print 'Eo optimised using whole year is as follows:'
     for yr in year_list:
         index = np.where(year_array == yr)
-        temp_d = {}
+        sub_d = {}
         for item in data_d.keys():
-            temp_d[item] = data_d[item][index]
-        drivers_d, response, pct = subset_daynight(temp_d, ['TempC'], 'NEE', True)
-        if pct > options_d['minimum_pct_annual']:
-            params = optimise_dark(drivers_d, response, None, prior_params_d, 0)
+            sub_d[item] = data_d[item][index]
+        params = optimise_dark_annual(sub_d, prior_params_d, options_d)
         yearsEo_d[str(yr)] = params[0]
         print '    - ' + str(yr) + ': ' + str(round(params[0]))
     
@@ -382,54 +413,33 @@ def main():
     default_params_d = {'alpha': 0, 'k': 0}
     
     # Get arrays of all datetimes, all dates and stepped dates
-    datetime_array, all_dates_array, step_dates_array = get_dates(data_d.pop('date_time'), options_d)    
+    datetime_array, all_dates_array, step_dates_array = get_dates(data_d.pop('date_time'), 
+                                                                  options_d)    
 
     # Get the annual estimates of Eo
-    yearsEo_d = annual_Eo(data_d, datetime_array, options_d, prior_params_d)
-    
-    # Initialise result arrays and step through data windows, find parameters for each
+    yearsEo_d = annual_Eo(data_d, datetime_array, prior_params_d, options_d)
+
+    # Initialise result array
     rslt_array = np.empty([len(all_dates_array), 6])
     rslt_array[:] = np.nan
-        
-    # Step through each of the stepped dates    
+
+    # Do optimisation for each window and write to result array
     for date in step_dates_array:
         
         # Subset the data
         sub_d = subset_window(data_d, datetime_array, date, options_d)
         
         # Get Eo for the relevant year and write to the parameters dictionary
-        default_params_d['Eo'] = yearsEo_d[str(date.year)]
+        # and the results array
+        Eo_current_year = yearsEo_d[str(date.year)]
+        default_params_d['Eo'] = Eo_current_year
         
         # Get the parameters and write to the results array
-        params = optimise_light(sub_d, default_params_d, prior_params_d, options_d)
         index = np.where(all_dates_array == date)
+        rslt_array[index, 0] = Eo_current_year
+        params = optimise_dark(sub_d, default_params_d, prior_params_d, options_d)        
+        rslt_array[index, 1:] = params
+        params = optimise_light(sub_d, default_params_d, prior_params_d, options_d)
         rslt_array[index, 2:] = params
-        rslt_array[index, 0] = default_params_d['Eo']
-        
-        params_est(default_params_d, yearsEo_d, options_d, prior_params_d, sub_d, all_dates_array, rslt_array, date)
-    
-def params_est(default_params_d, yearsEo_d, options_d, prior_params_d, sub_d, all_dates_array, rslt_arr, date):
-
-    prev_alpha = default_params_d['alpha']
-    min_pct_noct = options_d['minimum_pct_noct_window']
-    
-    # Get Eo for the relevant year and write to the parameters dictionary
-    default_params_d['Eo'] = yearsEo_d[str(date.year)] 
-
-    # Get dark subset and fit L&T parameters
-    drivers_d, response, pct = subset_daynight(sub_d, ['TempC'], 'NEE', True)
-    
-    if pct > min_pct_noct:
-        params = optimise_dark(drivers_d, response, default_params_d, prior_params_d, 1)
-    else:
-        params = np.nan
-    rb_noct = params[0]
-    
-    # Get light subset 
-    noct_flag = False
-    drivers_d, response, pct = subset_daynight(sub_d, ['PAR', 'TempC', 'VPD'], 'NEE', noct_flag)
-    
-    # Insert into results array
-    params = np.append(np.array([default_params_d['Eo'], rb_noct]), params)
-    index = np.where(all_dates_array == date)
-    rslt_arr[index, :] = params
+     
+    return rslt_array
