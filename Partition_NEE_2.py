@@ -8,6 +8,7 @@ import Tkinter, tkFileDialog
 from configobj import ConfigObj
 import numpy as np
 from scipy.optimize import curve_fit
+import matplotlib.pyplot as plt
 import datetime as dt
 import os
 import sys
@@ -51,10 +52,10 @@ def main():
                        'Eo_error_code, rb_noct_error_code', 'light_error_code']
     
     series_rslt_list = ['Re_noct', 'Re_day',
-                        'GPP (est)'
-                        'GPP_calc (NEE_obs - Re_noct)', 
-                        'GPP_calc (NEE_obs - Re_noct)',
-                        'NEE_obs', 'NEE_est (Re_noct)', 'NEE_est (Re_day)']    
+                        'GPP_est',
+                        'GPP_calc_noct (NEE_obs - Re_noct)', 
+                        'GPP_calc_day (NEE_obs - Re_day)',
+                        'NEE_obs', 'NEE_est'] 
     
     # Initialise results arrays
     param_rslt_array = np.empty([len(all_dates_array), 9])
@@ -71,24 +72,34 @@ def main():
     for date in step_dates_array:
 
         # Subset the data
-        sub_d = subset_window(data_d, datetime_array, date, options_d)
+        sub_d, series_index = subset_window(data_d, datetime_array, date, options_d)
         
         # Get Eo for the relevant year and write to the parameters dictionary
         default_params_d['Eo'] = param_rslt_array[np.where(all_dates_array == date), 0].item()
         
         # Get the parameters and write to the parameter results array
-        index = np.where(all_dates_array == date)
+        param_index = np.where(all_dates_array == date)
         dark_rb_param, dark_rb_error_state = optimise_dark(sub_d, default_params_d, 
                                                       prior_params_d, options_d)        
-        param_rslt_array[index, 1] = dark_rb_param
-        param_rslt_array[index, 7] = dark_rb_error_state
+        param_rslt_array[param_index, 1] = dark_rb_param
+        param_rslt_array[param_index, 7] = dark_rb_error_state
         light_params, light_error_state = optimise_light(sub_d, default_params_d, 
                                                          prior_params_d, options_d)
-        param_rslt_array[index, 2:6] = light_params
-        param_rslt_array[index, 8] = light_error_state
+        param_rslt_array[param_index, 2:6] = light_params
+        param_rslt_array[param_index, 8] = light_error_state
+
+        current_params = param_rslt_array[param_index, :6][0].reshape(6)
+        est_params_d = {param_rslt_list[i]: current_params[i] for i in range(6)}        
         
-        # Get the data and write to the data results array
-                
+        # Estimate the time series data and write to the results array
+        est_series_d = estimate_Re(sub_d, est_params_d)
+        if est_series_d != None:
+            for i, var in enumerate(series_rslt_list):
+                series_rslt_array[series_index, i] = est_series_d[var]
+        
+        # Do plotting of windows        
+        combine_d = dict(sub_d, **est_series_d)
+        
         
         # Print error messages if any
         if dark_rb_error_state != 0 or light_error_state != 0:
@@ -112,6 +123,7 @@ def make_TRF(Eo):
     return TRF
 
 def LRF(data_d,Eo,rb,alpha,Aopt,k):
+
     Aopt_VPD = Aopt * np.exp(-k * (data_d['VPD'] - 1))
     index = np.where(data_d['VPD'] <= 1)[0]
     Aopt_VPD[index] = Aopt
@@ -120,7 +132,7 @@ def LRF(data_d,Eo,rb,alpha,Aopt,k):
     index = np.where(data_d['PAR'] < 10)[0]
     GPP[index] = 0
     Reco = rb * np.exp(Eo * (1 / (10 + 46.02) - 1 / (data_d['TempC'] + 46.02)))
-    return GPP + Reco
+    return GPP, Reco
 
 def make_LRF_1(Eo):
     def LRF(data_d,rb,alpha,Aopt,k):
@@ -163,7 +175,30 @@ def make_LRF_3(Eo, k, alpha):
 
 #------------------------------------------------------------------------------        
 # Estimate Re (from nocturnal and daytime parameters) and GPP
-#def estimate_Re(params_d)
+def estimate_Re(sub_d, params_d):
+
+    if np.any(np.isnan(params_d.values())):
+        
+        return
+
+    else:
+        
+        # Estimate GPP and Re using nocturnal rb
+        GPP, Re_noct = LRF(sub_d, params_d['Eo'], params_d['rb_noct'],
+                           params_d['alpha'], params_d['Aopt'], params_d['k'])
+    
+        # Estimate GPP and Re using daytime rb
+        GPP, Re_day = LRF(sub_d, params_d['Eo'], params_d['rb_day'],
+                           params_d['alpha'], params_d['Aopt'], params_d['k'])
+
+        return_d={'Re_noct': Re_noct, 'Re_day': Re_day,
+                  'GPP_est': GPP,
+                  'GPP_calc_noct (NEE_obs - Re_noct)': sub_d['NEE'] - Re_noct,
+                  'GPP_calc_day (NEE_obs - Re_day)': sub_d['NEE'] - Re_day,
+                  'NEE_obs': sub_d['NEE'],     
+                  'NEE_est': GPP + Re_day}
+        
+        return return_d
 
 #------------------------------------------------------------------------------        
 # Get configurations and data
@@ -510,37 +545,37 @@ def optimise_light(sub_d, default_params_d, prior_params_d, options_d):
 # Plots 
 
 # Daytime and nocturnal fits for each window
-def plot_windows(data_d, paths_d, params_d, window, date):
+def plot_windows(data_d, paths_d, options_d, date):
 
     # Set parameters from dicts
     path = paths_d['plot_output_path']
+    window = options_d['window_size_days']
     
-    # Check whether plotting day or night and configure appropriately below
-    daynight_ind='day' if 'GPP' in params_d.keys() else 'noct'
-        
-    # Calculate model estimated value
-    if daynight_ind=='noct':
-        df['NEE_est']=est_Reco(df,params_d)
-        x_var=tempName
-        x_lab=r'Temperature ($^{o}C$)'
-    else:
-        df['NEE_est']=est_Reco(df,params_d['Reco'])+est_GPP(df,params_d['GPP'])
-        x_var=radName
-        x_lab=r'PAR ($\mu mol\/photons\/m^{-2}s^{-1}$)'
-    
-    # Plot 
-    date_str=dt.datetime.strftime(date,'%Y-%m-%d')
-    fig=plt.figure(figsize=(12,8))
-    fig.patch.set_facecolor('white')
-    plt.plot(df[x_var],df[CfluxName],'bo')
-    plt.plot(df[x_var],df['NEE_est'],'ro')
-    plt.title('Fit for '+str(window)+' day window centred on '+date_str+'\n',fontsize=22)
-    plt.xlabel(x_lab,fontsize=16)
-    plt.ylabel(r'Fc ($\mu mol C\/m^{-2} s^{-1}$)',fontsize=16)
-    plt.axhline(y=0,color='black')
-    plot_out_name=daynight_ind+'_'+date_str+'.jpg'
-    fig.savefig(os.path.join(path,plot_out_name))
-    plt.close(fig)
+    for i in range(2):
+        noct_flag = i == False
+        temp_d = subset_daynight(data_d, ['TempC'], 'NEE', noct_flag)
+        if noct_flag:
+            daynight_ind = 'noct'
+            x_lab = r'Temperature ($^{o}C$)'
+            x_var = 'TempC'
+        else:            
+            daynight_ind = 'day'
+            x_lab = r'PAR ($\mu mol\/photons\/m^{-2}s^{-1}$)'
+            x_var = 'PAR'           
+              
+        # Plot
+        date_str = dt.datetime.strftime(date,'%Y-%m-%d')
+        fig = plt.figure(figsize = (12,8))
+        fig.patch.set_facecolor('white')
+        plt.plot(df[x_var],df[CfluxName],'bo')
+        plt.plot(df[x_var],df['NEE_est'],'ro')
+        plt.title('Fit for '+str(window)+' day window centred on '+date_str+'\n',fontsize=22)
+        plt.xlabel(x_lab,fontsize=16)
+        plt.ylabel(r'Fc ($\mu mol C\/m^{-2} s^{-1}$)',fontsize=16)
+        plt.axhline(y=0,color='black')
+        plot_out_name=daynight_ind+'_'+date_str+'.jpg'
+        fig.savefig(os.path.join(path,plot_out_name))
+        plt.close(fig)
     
     return
 
@@ -594,6 +629,6 @@ def subset_window(data_d, date_array, date, options_d):
     for i in data_d.keys():
         sub_d[i] = data_d[i][index]
     
-    return sub_d
+    return sub_d, index
     
 #------------------------------------------------------------------------------
