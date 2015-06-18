@@ -473,25 +473,20 @@ def main():
     rslt_array[:,1:] = np.nan    
 
     # Get the annual estimates of Eo and write to the results array
-#    yearsEo_d = annual_Eo(data_d, prior_params_d, options_d, datetime_array)
     annual_Eo(data_d, prior_params_d, options_d, 
               datetime_array, all_dates_array, rslt_array)
 
-    return rslt_array
-
     # Do optimisation for each window and write to result array
     for date in step_dates_array:
-        
+
         # Subset the data
         sub_d = subset_window(data_d, datetime_array, date, options_d)
         
         # Get Eo for the relevant year and write to the parameters dictionary
-        Eo_current_year = yearsEo_d[str(date.year)]
-        default_params_d['Eo'] = Eo_current_year
+        default_params_d['Eo'] = rslt_array[np.where(all_dates_array == date), 0].item()
         
         # Get the parameters and write to the results array
         index = np.where(all_dates_array == date)
-        rslt_array[index, 0] = Eo_current_year
         dark_rb_param, dark_rb_error_state = optimise_dark(sub_d, default_params_d, 
                                                       prior_params_d, options_d)        
         rslt_array[index, 1] = dark_rb_param
