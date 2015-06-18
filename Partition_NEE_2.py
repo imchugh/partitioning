@@ -311,8 +311,7 @@ def make_initial_guess_dict(data_d):
                  np.nanpercentile(data_d['NEE'][index], 95))
     return d
 
-def annual_Eo(data_d, prior_params_d, options_d, 
-              datetime_array, all_dates_array, rslt_array):
+def annual_Eo(data_d, prior_params_d, options_d, datetime_array, all_dates_array):
     
     # Create a list of the number of years
     year_array = np.array([i.year for i in datetime_array])
@@ -370,14 +369,16 @@ def annual_Eo(data_d, prior_params_d, options_d,
     else:
         print 'Eo estimates passed QC for all years'
     
-    # Write to results array
+    # Write to arrays of same length as result arrays
+    Eo_array = np.empty([len(all_dates_array)])
+    QC_array = np.empty([len(all_dates_array)])
     year_array = np.array([i.year for i in all_dates_array])
     for yr in year_list:
         index = np.where(year_array == yr)
-        rslt_array[index, 0] = yearsEo_d[str(yr)]
-        rslt_array[index, 6] = yearsQC_d[str(yr)]
+        Eo_array[index] = yearsEo_d[str(yr)]
+        QC_array[index] = yearsQC_d[str(yr)]
     
-    return
+    return Eo_array, QC_array
 
 def get_dates(dateStr_array, options_d):
     
@@ -473,8 +474,8 @@ def main():
     rslt_array[:,1:] = np.nan    
 
     # Get the annual estimates of Eo and write to the results array
-    annual_Eo(data_d, prior_params_d, options_d, 
-              datetime_array, all_dates_array, rslt_array)
+    rslt_array[:,0], rslt_array[:,6] = annual_Eo(data_d, prior_params_d, options_d, 
+                                                 datetime_array, all_dates_array)
 
     # Do optimisation for each window and write to result array
     for date in step_dates_array:
