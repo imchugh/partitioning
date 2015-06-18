@@ -99,7 +99,7 @@ def main():
         
         # Do plotting of windows        
         combine_d = dict(sub_d, **est_series_d)
-        
+        pdb.set_trace()
         
         # Print error messages if any
         if dark_rb_error_state != 0 or light_error_state != 0:
@@ -358,17 +358,18 @@ def optimise_annual_Eo(data_d, prior_params_d, options_d,
         
         # Subset data        
         index = np.where(year_array == yr)
-        sub_d = {}
+        year_d = {}
         for item in data_d.keys():
-            sub_d[item] = data_d[item][index]
+            year_d[item] = data_d[item][index]
         noct_flag = True
-        drivers_d, response, pct = subset_daynight(sub_d, ['TempC'],
-                                                   'NEE', noct_flag)
+        sub_d, pct = subset_daynight(year_d, noct_flag)
         
         # Fit L&T parameters if minimum data criterion satisfied, otherwise nan
         if pct > options_d['minimum_pct_annual']:
+            drivers_d = {driver: sub_d[driver] for driver in ['TempC']}
+            response_array = sub_d['NEE']
             try:
-                params = curve_fit(TRF, drivers_d, response, 
+                params = curve_fit(TRF, drivers_d, response_array, 
                                    p0 = [prior_params_d['Eo'], 
                                          prior_params_d['rb']])[0]
             except RuntimeError:
@@ -429,11 +430,11 @@ def optimise_annual_Eo(data_d, prior_params_d, options_d,
     return Eo_array, QC_array
 
 # Night rb    
-def optimise_dark(sub_d, default_params_d, prior_params_d, options_d):
+def optimise_dark(data_d, default_params_d, prior_params_d, options_d):
 
     # Get dark subset
     noct_flag = True
-    drivers_d, response, pct = subset_daynight(sub_d, ['TempC'], 'NEE', noct_flag)
+    sub_d, pct = subset_daynight(data_d, noct_flag)
     
     # If minimum data criterion satisfied, fit L&T parameters
     if pct > options_d['minimum_pct_noct_window']:
@@ -441,8 +442,13 @@ def optimise_dark(sub_d, default_params_d, prior_params_d, options_d):
         # Initialise error state variable
         error_state = 0              
         
+        # Get drivers and response
+        drivers_d = {driver: sub_d[driver] for driver in ['TempC']}
+        response_array = sub_d['NEE']        
+        
         try:
-            params = curve_fit(make_TRF(default_params_d['Eo']), drivers_d, response, 
+            params = curve_fit(make_TRF(default_params_d['Eo']), 
+                               drivers_d, response_array, 
                                p0 = [prior_params_d['rb']])[0]
         except RuntimeError:
             params = [np.nan]
@@ -460,22 +466,25 @@ def optimise_dark(sub_d, default_params_d, prior_params_d, options_d):
     return params, error_state
 
 # Daytime rb, alpha, Aopt, k
-def optimise_light(sub_d, default_params_d, prior_params_d, options_d):
+def optimise_light(data_d, default_params_d, prior_params_d, options_d):
         
     # Get light subset 
     noct_flag = False
-    drivers_d, response, pct = subset_daynight(sub_d, ['PAR', 'TempC', 'VPD'], 
-                                               'NEE', noct_flag)
+    sub_d, pct = subset_daynight(data_d, noct_flag)
     
     # If minimum data criterion satisfied, fit light response and L&T parameters
     if pct > options_d['minimum_pct_day_window']:
         
         # Initialise error state variable
         error_state = 0        
+
+        # Get drivers and response
+        drivers_d = {driver: sub_d[driver] for driver in ['PAR', 'TempC', 'VPD']}
+        response_array = sub_d['NEE']      
         
         try:
             params = curve_fit(make_LRF_1(default_params_d['Eo']), 
-                               drivers_d, response, 
+                               drivers_d, response_array, 
                                p0 = [prior_params_d['rb'], 
                                      prior_params_d['alpha'], 
                                      prior_params_d['Aopt'], 
@@ -581,15 +590,12 @@ def plot_windows(data_d, paths_d, options_d, date):
 
 #------------------------------------------------------------------------------
 # Subsetting of day and night (remove all records with bad data in ANY variable)
-def subset_daynight(data_d, drivers, NEE_name, noct_flag):
+def subset_daynight(data_d, noct_flag):
     
     # Turn dictionary into an array
-    if not type(drivers) == list:
-        drivers = [drivers]
-    temp_array = np.empty([len(data_d[NEE_name]), len(drivers) + 1])
-    for i, var in enumerate(drivers):
+    temp_array = np.empty([len(data_d['NEE']), len(data_d)])
+    for i, var in enumerate(data_d.keys()):
         temp_array[:, i] = data_d[var]
-    temp_array[:, -1] = data_d[NEE_name]
 
     # Create night / day subsetting index, subset data and count records
     if noct_flag:
@@ -604,12 +610,10 @@ def subset_daynight(data_d, drivers, NEE_name, noct_flag):
     temp_array = temp_array[QCdata_index]
     valid_records = len(temp_array)
     percent_avail = round(float(valid_records) / num_records * 100, 1)
+
+    sub_d = {var: temp_array[:, i] for i, var in enumerate(data_d.keys())}
     
-    # Build dictionary for driver, and array for response
-    drivers_d = {var: temp_array[:, i] for i, var in enumerate(drivers)}
-    response = temp_array[:, -1]
-    
-    return drivers_d, response, percent_avail
+    return sub_d, percent_avail
 
 # Subsetting of date window
 def subset_window(data_d, date_array, date, options_d):
