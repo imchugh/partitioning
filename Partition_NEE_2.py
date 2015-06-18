@@ -99,7 +99,7 @@ def main():
         
         # Do plotting of windows        
         combine_d = dict(sub_d, **est_series_d)
-        pdb.set_trace()
+        plot_windows(combine_d, paths_d, options_d, date)
         
         # Print error messages if any
         if dark_rb_error_state != 0 or light_error_state != 0:
@@ -562,27 +562,32 @@ def plot_windows(data_d, paths_d, options_d, date):
     
     for i in range(2):
         noct_flag = i == False
-        temp_d = subset_daynight(data_d, ['TempC'], 'NEE', noct_flag)
+        sub_d = subset_daynight(data_d, noct_flag)[0]
         if noct_flag:
             daynight_ind = 'noct'
             x_lab = r'Temperature ($^{o}C$)'
-            x_var = 'TempC'
+            x_var = sub_d['TempC']
+            y_var1 = sub_d['NEE']
+            y_var2 = sub_d['Re_noct']
         else:            
             daynight_ind = 'day'
             x_lab = r'PAR ($\mu mol\/photons\/m^{-2}s^{-1}$)'
-            x_var = 'PAR'           
+            x_var = sub_d['PAR']
+            y_var1 = sub_d['NEE']
+            y_var2 = sub_d['NEE_est']
               
         # Plot
         date_str = dt.datetime.strftime(date,'%Y-%m-%d')
         fig = plt.figure(figsize = (12,8))
         fig.patch.set_facecolor('white')
-        plt.plot(df[x_var],df[CfluxName],'bo')
-        plt.plot(df[x_var],df['NEE_est'],'ro')
+        plt.plot(x_var, y_var1, 'bo' , label = 'NEE_obs')
+        plt.plot(x_var, y_var2, 'ro', label = 'NEE_est')
         plt.title('Fit for '+str(window)+' day window centred on '+date_str+'\n',fontsize=22)
         plt.xlabel(x_lab,fontsize=16)
         plt.ylabel(r'Fc ($\mu mol C\/m^{-2} s^{-1}$)',fontsize=16)
         plt.axhline(y=0,color='black')
         plot_out_name=daynight_ind+'_'+date_str+'.jpg'
+        plt.tight_layout()
         fig.savefig(os.path.join(path,plot_out_name))
         plt.close(fig)
     
@@ -612,7 +617,7 @@ def subset_daynight(data_d, noct_flag):
     percent_avail = round(float(valid_records) / num_records * 100, 1)
 
     sub_d = {var: temp_array[:, i] for i, var in enumerate(data_d.keys())}
-    
+
     return sub_d, percent_avail
 
 # Subsetting of date window
