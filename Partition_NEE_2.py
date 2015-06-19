@@ -46,10 +46,11 @@ def main():
     # Get arrays of all datetimes, all dates and stepped dates
     datetime_array, all_dates_array, step_dates_array = get_dates(data_d.pop('date_time'), 
                                                                   options_d)    
-
     # Create variable name lists for results output
     param_rslt_list = ['Eo', 'rb_noct', 'rb_day', 'alpha', 'Aopt', 'k', 
-                       'Eo_error_code, rb_noct_error_code', 'light_error_code']
+                       'Eo_error_code, rb_noct_error_code', 'light_error_code',
+                       'noct_fill_code (0 = calculated, 1 = interpolated)'
+                       'day_fill_code (0 = calculated, 1 = interpolated)']
     
     series_rslt_list = ['Re_noct', 'Re_day',
                         'GPP_est',
@@ -58,7 +59,7 @@ def main():
                         'NEE_obs', 'NEE_est'] 
     
     # Initialise results arrays
-    param_rslt_array = np.empty([len(all_dates_array), 9])
+    param_rslt_array = np.empty([len(all_dates_array), 11])
     param_rslt_array[:] = np.nan
     series_rslt_array = np.empty([len(datetime_array), 8])
     series_rslt_array[:] = np.nan
@@ -88,19 +89,6 @@ def main():
         param_rslt_array[param_index, 2:6] = light_params
         param_rslt_array[param_index, 8] = light_error_state
 
-        current_params = param_rslt_array[param_index, :6][0].reshape(6)
-        est_params_d = {param_rslt_list[i]: current_params[i] for i in range(6)}        
-        
-        # Estimate the time series data and write to the results array
-        est_series_d = estimate_Re(sub_d, est_params_d)
-        if est_series_d != None:
-            for i, var in enumerate(series_rslt_list):
-                series_rslt_array[series_index, i] = est_series_d[var]
-        
-        # Do plotting of windows        
-        combine_d = dict(sub_d, **est_series_d)
-        plot_windows(combine_d, paths_d, options_d, date)
-        
         # Print error messages if any
         if dark_rb_error_state != 0 or light_error_state != 0:
             print 'For ' + dt.datetime.strftime(date, '%Y-%m-%d') + ':'
@@ -108,8 +96,39 @@ def main():
                 print msg_dark_d[dark_rb_error_state]
             if light_error_state != 0:
                 print msg_light_d[light_error_state]
+
+        # Write current parameters to estimated parameters dictionary
+        current_params = param_rslt_array[param_index, :6][0].reshape(6)
+        est_params_d = {param_rslt_list[i]: current_params[i] for i in range(6)}
+        
+        # Estimate the time series data and write to the results array
+        est_series_d = estimate_Re(sub_d, est_params_d)
+        if est_series_d != None:
+            for i, var in enumerate(series_rslt_list):
+                series_rslt_array[series_index, i] = est_series_d[var]
+        
+        # Plot windows if required
+        if options_d['output_plots']:
+            combine_d = dict(sub_d, **est_series_d)
+            plot_windows(combine_d, paths_d, options_d, date)
+
+    # Create a binary var indicating calculated or interpolated, then interpolate
+    param_rslt_array[:, 9] = np.where(~np.isnan(param_rslt_array[:, 1]), 1, 0)
+    param_rslt_array[:, 10] = np.where(~np.isnan(param_rslt_array[:, 2]), 1, 0)
+    param_rslt_array[:, :6] = interp_params(param_rslt_array)
+    
+    # Create results dictionaries
+    param_rslt_d = {var: param_rslt_array[:, i] for i, var 
+                    in enumerate(param_rslt_list)}
+    param_rslt_d['Date'] = all_dates_array
+
+    # Plot parameters if required
+    if options_d['output_plots']:
+        plot_params(param_rslt_d, paths_d)
+
+    # Output results if required
      
-    return param_rslt_array
+    return param_rslt_d
 
 #------------------------------------------------------------------------------
 # Data optimisation algorithms
@@ -226,6 +245,10 @@ def get_configs():
     for key in options_d:
         if options_d[key].isdigit():
             options_d[key] = int(options_d[key])
+        elif options_d[key] == 'True':
+            options_d[key] = True
+        elif options_d[key] == 'False':
+            options_d[key] = False
         else:
             try:
                 options_d[key] = float(options_d[key])
@@ -293,6 +316,20 @@ def get_dates(dateStr_array, options_d):
     step_dates_array = [first_fit_day + dt.timedelta(i) for i in step_days]
     
     return date_array, all_dates_array, step_dates_array
+
+#------------------------------------------------------------------------------
+# Interpolate parameters to create complete series
+def interp_params(param_rslt_array):
+    
+    arr = param_rslt_array[:, :6].copy()
+    
+    xp = np.arange(len(param_rslt_array))
+    for i in range(6):
+        fp = arr[:, i]
+        nan_index = np.isnan(fp)
+        fp[nan_index] = np.interp(xp[nan_index], xp[~nan_index], fp[~nan_index])
+        arr[:, i] = fp
+    return arr
 
 #------------------------------------------------------------------------------
 # Make dictionaries
@@ -499,7 +536,7 @@ def optimise_light(data_d, default_params_d, prior_params_d, options_d):
             k = 0
             try:
                 params = curve_fit(make_LRF_2(default_params_d['Eo'], default_params_d['k']), 
-                                   drivers_d, response, 
+                                   drivers_d, response_array, 
                                    p0 = [prior_params_d['rb'], 
                                          prior_params_d['alpha'], 
                                          prior_params_d['Aopt']])[0]
@@ -516,7 +553,7 @@ def optimise_light(data_d, default_params_d, prior_params_d, options_d):
             try:            
                 params = curve_fit(make_LRF_3(default_params_d['Eo'], default_params_d['k'], 
                                               default_params_d['alpha']), 
-                                   drivers_d, response, 
+                                   drivers_d, response_array, 
                                    p0 = [prior_params_d['rb'], prior_params_d['Aopt']])[0]
             except RuntimeError:
                 error_state = 3
@@ -582,14 +619,39 @@ def plot_windows(data_d, paths_d, options_d, date):
         fig.patch.set_facecolor('white')
         plt.plot(x_var, y_var1, 'bo' , label = 'NEE_obs')
         plt.plot(x_var, y_var2, 'ro', label = 'NEE_est')
-        plt.title('Fit for '+str(window)+' day window centred on '+date_str+'\n',fontsize=22)
-        plt.xlabel(x_lab,fontsize=16)
-        plt.ylabel(r'Fc ($\mu mol C\/m^{-2} s^{-1}$)',fontsize=16)
-        plt.axhline(y=0,color='black')
-        plot_out_name=daynight_ind+'_'+date_str+'.jpg'
+        plt.title('Fit for ' + str(window) + ' day window centred on ' + 
+                  date_str + '\n', fontsize = 22)
+        plt.xlabel(x_lab, fontsize = 16)
+        plt.ylabel(r'Fc ($\mu mol C\/m^{-2} s^{-1}$)', fontsize = 16)
+        plt.axhline(y = 0, color = 'black')
+        plot_out_name = daynight_ind + '_' + date_str + '.jpg'
         plt.tight_layout()
-        fig.savefig(os.path.join(path,plot_out_name))
+        fig.savefig(os.path.join(path, plot_out_name))
         plt.close(fig)
+   
+    return
+
+def plot_params(param_rslt_d, paths_d):
+    
+    # Set parameters from dicts
+    path = paths_d['plot_output_path']
+
+    x_var = param_rslt_d['Date']
+    y_var1 = param_rslt_d['rb_noct'] 
+    y_var2 = param_rslt_d['rb_day']
+
+    fig = plt.figure(figsize = (12,8))
+    fig.patch.set_facecolor('white')    
+    plt.plot(x_var, y_var1, 'bo' , label = 'rb_noct')
+    plt.plot(x_var, y_var2, 'r^' , label = 'rb_day')
+    plt.title('Lloyd and Taylor temperature response function rb parameter\n')
+    plt.xlabel('$Date$', fontsize = 16) 
+    plt.ylabel('$Respiration\/at\/10^{o}C\/(\mu mol C\/m^{-2} s^{-1})$', fontsize = 16)
+    plt.legend(loc = 'upper right')
+    plot_out_name = 'rb_parameters.jpg'
+    plt.tight_layout()
+    fig.savefig(os.path.join(path, plot_out_name))
+    plt.close(fig)
     
     return
 
