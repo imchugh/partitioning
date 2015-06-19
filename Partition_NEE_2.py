@@ -61,7 +61,7 @@ def main():
     # Initialise results arrays
     param_rslt_array = np.empty([len(all_dates_array), 11])
     param_rslt_array[:] = np.nan
-    series_rslt_array = np.empty([len(datetime_array), 8])
+    series_rslt_array = np.empty([len(datetime_array), 7])
     series_rslt_array[:] = np.nan
 
     # Get the annual estimates of Eo and write to the parameter results array
@@ -73,7 +73,8 @@ def main():
     for date in step_dates_array:
 
         # Subset the data
-        sub_d, series_index = subset_window(data_d, datetime_array, date, options_d)
+        sub_d, series_index = subset_window(data_d, datetime_array, date, 
+                                            options_d['window_size_days'])
         
         # Get Eo for the relevant year and write to the parameters dictionary
         default_params_d['Eo'] = param_rslt_array[np.where(all_dates_array == date), 0].item()
@@ -98,17 +99,12 @@ def main():
                 print msg_light_d[light_error_state]
 
         # Write current parameters to estimated parameters dictionary
-        current_params = param_rslt_array[param_index, :6][0].reshape(6)
+        current_params = param_rslt_array[np.where(all_dates_array == date), :6].reshape(6)
         est_params_d = {param_rslt_list[i]: current_params[i] for i in range(6)}
         
-        # Estimate the time series data and write to the results array
+        # Estimate the time series data and plot
         est_series_d = estimate_Re(sub_d, est_params_d)
-        if est_series_d != None:
-            for i, var in enumerate(series_rslt_list):
-                series_rslt_array[series_index, i] = est_series_d[var]
-        
-        # Plot windows if required
-        if options_d['output_plots']:
+        if est_series_d != None and options_d['output_plots']:
             combine_d = dict(sub_d, **est_series_d)
             plot_windows(combine_d, paths_d, options_d, date)
 
@@ -117,6 +113,24 @@ def main():
     param_rslt_array[:, 10] = np.where(~np.isnan(param_rslt_array[:, 2]), 1, 0)
     param_rslt_array[:, :6] = interp_params(param_rslt_array)
     
+    # Loop through interpolated data, construct the time series and do plotting
+    for ind, date in enumerate(all_dates_array):
+        
+        # Subset the data (single day)
+        sub_d, series_index = subset_window(data_d, datetime_array, date, 1)
+
+        # Write current parameters to estimated parameters dictionary
+        current_params = param_rslt_array[ind, :6]
+        est_params_d = {param_rslt_list[i]: current_params[i] for i in range(6)}
+        
+        # Estimate the time series data and write to the results 
+        est_series_d = estimate_Re(sub_d, est_params_d)
+        if est_series_d != None:
+            for i, var in enumerate(series_rslt_list):
+                series_rslt_array[series_index, i] = est_series_d[var]
+                
+    return series_rslt_array
+
     # Create results dictionaries
     param_rslt_d = {var: param_rslt_array[:, i] for i, var 
                     in enumerate(param_rslt_list)}
@@ -628,7 +642,7 @@ def plot_windows(data_d, paths_d, options_d, date):
         plt.tight_layout()
         fig.savefig(os.path.join(path, plot_out_name))
         plt.close(fig)
-   
+        
     return
 
 def plot_params(param_rslt_d, paths_d):
@@ -683,11 +697,8 @@ def subset_daynight(data_d, noct_flag):
     return sub_d, percent_avail
 
 # Subsetting of date window
-def subset_window(data_d, date_array, date, options_d):
+def subset_window(data_d, date_array, date, window):
 
-    # Assign configs to local vars
-    window = options_d['window_size_days']    
-    
     # Find bracketing dates
     date_time = (dt.datetime.combine(date, dt.datetime.min.time()) 
                  + dt.timedelta(hours = 12))
@@ -695,11 +706,11 @@ def subset_window(data_d, date_array, date, options_d):
     end_date = date_time + dt.timedelta(window / 2.0)
     
     # Get index for right dates, then subset the arrays
-    index = np.where((date_array > start_date) & (date_array <= end_date))
+    index = np.where((date_array >= start_date) & (date_array < end_date))
     sub_d = {}
     for i in data_d.keys():
         sub_d[i] = data_d[i][index]
     
     return sub_d, index
-    
+
 #------------------------------------------------------------------------------
