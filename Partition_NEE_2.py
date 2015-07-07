@@ -7,15 +7,19 @@ Created on Wed May 27 09:28:52 2015
 import Tkinter, tkFileDialog
 from configobj import ConfigObj
 import numpy as np
+import pandas as pd
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 import datetime as dt
+import netCDF4
 import os
+import ast
+import xlrd
 import sys
 import pdb
 
 # Main code starts here
-def main():
+def main(data_dict, configs_dict):
 
     # Create dictionaries from configuration file
     paths_d, vars_d, options_d = get_configs()
@@ -30,7 +34,7 @@ def main():
             os.makedirs(paths_d['plot_output_path'])
     
     # Get the data and enter into dictionary
-    data_d = get_data(paths_d, vars_d)
+    data_d = get_data(paths_d, vars_d, options_d)
     
     # Create a dictionary containing initial guesses for each parameter
     prior_params_d = make_initial_guess_dict(data_d)
@@ -44,13 +48,15 @@ def main():
     msg_light_d = make_error_code_dict(noct_flag = False)
     
     # Get arrays of all datetimes, all dates and stepped dates
-    datetime_array, all_dates_array, step_dates_array = get_dates(data_d.pop('date_time'), 
-                                                                  options_d)    
+    (working_datetime_array, 
+     datetime_array, 
+     all_dates_array, 
+     step_dates_array) = get_dates(data_d.pop('date_time'), options_d)    
     # Create variable name lists for results output
     param_rslt_list = ['Eo', 'rb_noct', 'rb_day', 'alpha', 'Aopt', 'k', 
                        'Eo_error_code, rb_noct_error_code', 'light_error_code',
-                       'noct_fill_code (0 = calculated, 1 = interpolated)'
-                       'day_fill_code (0 = calculated, 1 = interpolated)']
+                       'noct_fill_code (0 = calculated; 1 = interpolated)'
+                       'day_fill_code (0 = calculated; 1 = interpolated)']
     
     series_rslt_list = ['Re_noct', 'Re_day',
                         'GPP_est',
@@ -61,19 +67,21 @@ def main():
     # Initialise results arrays
     param_rslt_array = np.empty([len(all_dates_array), 11])
     param_rslt_array[:] = np.nan
-    series_rslt_array = np.empty([len(datetime_array), 7])
+    series_rslt_array = np.empty([len(working_datetime_array), 7])
     series_rslt_array[:] = np.nan
 
     # Get the annual estimates of Eo and write to the parameter results array
     (param_rslt_array[:,0], 
-     param_rslt_array[:,6]) = optimise_annual_Eo(data_d, prior_params_d, options_d, 
-                                           datetime_array, all_dates_array)    
+     param_rslt_array[:,6]) = optimise_annual_Eo(data_d, prior_params_d, 
+                                                 options_d, 
+                                                 working_datetime_array, 
+                                                 all_dates_array)    
     
     # Do optimisation for each window
     for date in step_dates_array:
 
         # Subset the data
-        sub_d, series_index = subset_window(data_d, datetime_array, date, 
+        sub_d, series_index = subset_window(data_d, working_datetime_array, date, 
                                             options_d['window_size_days'])
         
         # Get Eo for the relevant year and write to the parameters dictionary
@@ -117,7 +125,7 @@ def main():
     for ind, date in enumerate(all_dates_array):
         
         # Subset the data (single day)
-        sub_d, series_index = subset_window(data_d, datetime_array, date, 1)
+        sub_d, series_index = subset_window(data_d, working_datetime_array, date, 1)
 
         # Write current parameters to estimated parameters dictionary
         current_params = param_rslt_array[ind, :6]
@@ -128,21 +136,26 @@ def main():
         if est_series_d != None:
             for i, var in enumerate(series_rslt_list):
                 series_rslt_array[series_index, i] = est_series_d[var]
-                
-    return series_rslt_array
-
-    # Create results dictionaries
-    param_rslt_d = {var: param_rslt_array[:, i] for i, var 
-                    in enumerate(param_rslt_list)}
-    param_rslt_d['Date'] = all_dates_array
 
     # Plot parameters if required
     if options_d['output_plots']:
         plot_params(param_rslt_d, paths_d)
 
     # Output results if required
+    if options_d['output_results']:
+        txt_datetime = datetime_array.apply(lambda x: dt.datetime.strftime(x, '%Y-%m-%d HH:MM:SS'))
+        np.savetxt(os.path.join(paths_d['results_output_path'], 'parameters_ts.csv'),
+                   param_rslt_array,                    
+                   delimiter = ',',
+                   header = ','.join(param_rslt_list),
+                   comments = '')
+        np.savetxt(os.path.join(paths_d['results_output_path'], 'estimates_ts.csv'),
+                   series_rslt_array,                    
+                   delimiter = ',',
+                   header = ','.join(series_rslt_list),
+                   comments = '')                           
      
-    return param_rslt_d
+    return
 
 #------------------------------------------------------------------------------
 # Data optimisation algorithms
@@ -246,13 +259,19 @@ def get_configs():
     cf=ConfigObj(cfName)
     
     # Map input file variable names to hard-coded names used in this script
-    vars_d = dict(cf['variables'])
-    temp_d = {'carbon_flux': 'NEE', 
-              'solar_radiation': 'PAR', 
-              'temperature': 'TempC', 
-              'vapour_pressure_deficit': 'VPD',
-              'date_time': 'date_time'}
-    vars_d = {temp_d[i]: vars_d['data'][i] for i in temp_d.keys()}
+    vars_d = {}
+    extNames_d = dict(cf['variables']['data'])
+    intNames_d = {'carbon_flux': 'NEE', 
+                  'solar_radiation': 'PAR', 
+                  'temperature': 'TempC', 
+                  'vapour_pressure_deficit': 'VPD'}
+    vars_d['data'] = {intNames_d[i]: extNames_d[i] for i in intNames_d.keys()}
+    extNames_d = dict(cf['variables']['QC'])
+    intNames_d = {'carbon_flux_QCFlag': 'NEE', 
+                  'solar_radiation_QCFlag': 'PAR', 
+                  'temperature_QCFlag': 'TempC', 
+                  'vapour_pressure_deficit_QCFlag': 'VPD'}
+    vars_d['QC'] = {intNames_d[i]: extNames_d[i] for i in intNames_d.keys()}
     
     # Prepare dictionary of user settings - drop strings or change to int / float
     options_d = dict(cf['options'])
@@ -277,11 +296,42 @@ def get_configs():
         
     return paths_d, vars_d, options_d
 
-def get_data(paths_d, vars_d):
+def get_data(paths_d, vars_d, options_d):
     
-    data_arr = np.load(paths_d['file_in'])
-    data_d = {varName: data_arr[vars_d[varName]] for varName in vars_d.keys()}
-    return data_d
+#    data_arr = np.load(paths_d['file_in'])
+#    data_d = {varName: data_arr[vars_d[varName]] for varName in vars_d.keys()}
+#    return data_d
+
+    # Get user-set variable names from config file
+    vars_data = vars_d['data'].values()
+    vars_QC = vars_d['QC'].values()
+    vars_all = vars_data + vars_QC
+
+    # Read .nc file
+    nc_obj=netCDF4.Dataset(paths_d['file_in'])
+    options_d['msmt_interval_hrs'] = int(nc_obj.time_step) / 60.0
+    dates_list = [dt.datetime(*xlrd.xldate_as_tuple(elem,0)) 
+                  for elem in nc_obj.variables['xlDateTime']]
+    d={}
+    for i in vars_all:
+        ndims=len(nc_obj.variables[i].shape)
+        if ndims==3:
+            d[i]=nc_obj.variables[i][:,0,0]
+        elif ndims==1:    
+            d[i]=nc_obj.variables[i][:]
+        d[i] = np.where(d[i] == options_d['nan_value'], np.nan, d[i])
+    nc_obj.close()
+
+    # Replace configured error values with NaNs and remove data with unacceptable QC codes, 
+    # then drop QC flag variables
+    if 'QC_accept_codes' in options_d:    
+        QC_accept_codes = ast.literal_eval(options_d['QC_accept_codes'])
+        options_d.pop('QC_accept_codes')
+        eval_string='|'.join(['(df[vars_QC[i]]=='+str(i)+')' for i in QC_accept_codes])
+        pdb.set_trace()
+        for i in xrange(4):
+            df[vars_data[i]]=np.where(eval(eval_string),df[vars_data[i]],np.nan)
+    df=df[vars_data]
 
 def get_dates(dateStr_array, options_d):
     
@@ -298,17 +348,17 @@ def get_dates(dateStr_array, options_d):
     # (average of 0000-0030) and final valid case is 0000 (average of 2330 to 0000).
     date_array = np.array([dt.datetime.strptime(i, '%Y-%m-%d %H:%M:%S')
                            for i in dateStr_array])    
-    date_array = date_array - dt.timedelta(minutes = 60 * msmt_interval)
+    working_date_array = date_array - dt.timedelta(minutes = 60 * msmt_interval)
 
     # Create a series of continuous whole day dates that will be used for output
     # (parameter series will be interpolated between window centres)
-    start_date = date_array[0].date()
-    end_date = date_array[-1].date()
+    start_date = working_date_array[0].date()
+    end_date = working_date_array[-1].date()
     num_days = (end_date - start_date).days + 1 # Add 1 so is inclusive of both end members
     all_dates_array = np.array([start_date + dt.timedelta(i) for i in xrange(num_days)])
     
     # Check that first and last days are complete and revise start and end dates if required
-    all_dates = np.array([i.date() for i in date_array])
+    all_dates = np.array([i.date() for i in working_date_array])
     recs_required = 24 * (1 / msmt_interval)
     recs_count = 0
     loop_count = 0
@@ -329,7 +379,7 @@ def get_dates(dateStr_array, options_d):
     step_days = np.arange(0, num_days, step)
     step_dates_array = [first_fit_day + dt.timedelta(i) for i in step_days]
     
-    return date_array, all_dates_array, step_dates_array
+    return working_date_array, date_array, all_dates_array, step_dates_array
 
 #------------------------------------------------------------------------------
 # Interpolate parameters to create complete series
@@ -362,7 +412,8 @@ def make_error_code_dict(noct_flag):
         d = {1:'Value of k failed range check - setting to zero and ' \
                'recalculating other parameters',
              2:'Value of alpha failed range check - using previous ' \
-               'estimate and recalculating other parameters',
+               'estimate (zero if unavailable) and recalculating other ' \
+               'parameters',
              3:'Optimisation reached maximum number of interations' \
                'without convergence',
              4:'Value of Aopt and rb have wrong sign - ' \
