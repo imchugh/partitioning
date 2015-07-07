@@ -189,8 +189,7 @@ if len(Eo_pass_keys) != len(yearsEo_d):
     else:
         for i in Eo_range_fail_keys:
             yearsEo_d[i] == 50 if yearsEo_d[i] < 50 else 400
-        print 'Warning! Eo estimates were out of range for the following years: '
-        print [i for i in (Eo_range_fail_keys)]
+        print 'Warning! Eo estimates were out of range for all years'
         print 'Low estimates have been set to lower limit (50);'
         print 'High estimates have been set to upper limit (400);'
         print 'Parameter estimates are unlikely to be robust!'
@@ -227,7 +226,6 @@ step_days = np.arange(0, num_days, step)
 step_whole_day_dates = [first_fit_day + dt.timedelta(i) for i in step_days]
 
 # Initialise result arrays and step through data windows, find parameters for each
-rslt_list = []
 rslt_arr = np.empty([len(all_whole_day_dates), 6])
 rslt_arr[:] = np.nan
 for date in step_whole_day_dates:
@@ -252,13 +250,16 @@ for date in step_whole_day_dates:
 
     # ... then light
     params = optimise_light(sub_d, Eo_year, var_to_fit)
-
-    # Do QC
     
-
+    # Do QC
+    # Reject nocturnal rb if negative
+    if rb_noct < 0:
+        rb_noct = np.nan
+    # Reject all daytime parameters if daytime rb negative
+    if params[0] < 0:
+        params == [np.nan, np.nan, np.nan, np.nan]
+        
     # Insert into results array
     params = np.append(np.array([Eo_year, rb_noct]), params)
     index = np.where(all_whole_day_dates == date)
     rslt_arr[index, :] = params
-    
-#rslt_arr = np.vstack(rslt_list)
