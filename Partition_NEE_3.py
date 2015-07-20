@@ -45,8 +45,8 @@ def main(data_dict, configs_dict):
     
     # Create variable name lists for results output
     param_rslt_list = ['Eo', 'rb_noct', 'rb_day', 'alpha', 'Aopt', 'k', 
-                       'Eo_error_code, rb_noct_error_code', 'light_error_code',
-                       'noct_fill_code (0 = calculated; 1 = interpolated)'
+                       'Eo_error_code', 'rb_noct_error_code', 'light_error_code',
+                       'noct_fill_code (0 = calculated; 1 = interpolated)',
                        'day_fill_code (0 = calculated; 1 = interpolated)']
     
     series_rslt_list = ['Re_noct', 'Re_day',
