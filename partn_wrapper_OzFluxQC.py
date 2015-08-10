@@ -12,7 +12,7 @@ import datetime as dt
 import netCDF4
 import xlrd
 
-import Partition_NEE_3 as pt
+import Partition_NEE_5 as pt
 
 # Open configuration and build dictionaries of config file contents
 def get_configs():
@@ -21,9 +21,9 @@ def get_configs():
                     'minimum_temperature_spread': 5,
                     'step_size_days': 5,
                     'window_size_days': 15,
-                    'minimum_pct_annual': 30,
-                    'minimum_pct_noct_window': 20,
-                    'minimum_pct_day_window': 50,
+                    'min_pct_annual': 30,
+                    'min_pct_noct_window': 20,
+                    'min_pct_day_window': 50,
                     'output_plots': False,
                     'msmt_interval_hrs': 0.5,
                     'QC_accept_code': 0,
@@ -42,15 +42,18 @@ def get_data(configs_dict):
     vars_dict = {'carbon_flux':'Fc',
                  'solar_radiation':'Fsd',
                  'temperature':'Ta',
-                 'vapour_pressure_deficit':'VPD'}
+                 'vapour_pressure_deficit':'VPD',
+                 'friction_velocity': 'ustar'}
     QC_dict = {'carbon_flux':'Fc_QCFlag',
                'solar_radiation':'Fsd_QCFlag',
                'temperature':'Ta_QCFlag',
-               'vapour_pressure_deficit':'VPD_QCFlag'}
+               'vapour_pressure_deficit':'VPD_QCFlag',
+               'friction_velocity': 'ustar_QCFlag'}
     newNames_dict = {'carbon_flux':'NEE',
                      'solar_radiation':'PAR',
                      'temperature':'TempC',
-                     'vapour_pressure_deficit':'VPD'}
+                     'vapour_pressure_deficit':'VPD',
+                     'friction_velocity': 'ustar'}
 
     # Read .nc file
     d={}
@@ -70,28 +73,31 @@ def get_data(configs_dict):
     # Estimate PAR from Fsd
     d[vars_dict['solar_radiation']] = d[vars_dict['solar_radiation']] * 0.46 * 4.6
 
+    # Screen low ustar values
+    index = np.where(d[vars_dict['friction_velocity']] < 0.4)
+    d[vars_dict['carbon_flux']][index] = np.nan
+
     # Replace configured error values with NaNs and remove data with unacceptable QC codes, 
     # then drop QC flag variables and rename variable to new names
     for key in vars_dict.keys():
         d[vars_dict[key]] = np.where(d[QC_dict[key]] != configs_dict['QC_accept_code'],
                                      np.nan, d[vars_dict[key]])
         d.pop(QC_dict[key])
-        try:
-            d[newNames_dict[key]] = d.pop(vars_dict[key])
-        except KeyError:
-            pdb.set_trace()
-    
+        d[newNames_dict[key]] = d.pop(vars_dict[key])
+
     # Add date_time variable
     d['date_time'] = date_time
           
     return d
+
+def main():    
+
+    # Get configurations and data
+    configs_dict = get_configs()
+    data_dict = get_data(configs_dict)
     
-# Get configurations and data
-configs_dict = get_configs()
-data_dict = get_data(configs_dict)
+    # Return parameter and series dictionaries
+    param_dict, series_dict = pt.main(data_dict, configs_dict)
 
-# Return parameter and series dictionaries
-param_dict, series_dict = pt.main(data_dict, configs_dict)
-
-
+    return param_dict, series_dict
 
