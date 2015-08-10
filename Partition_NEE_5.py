@@ -66,7 +66,7 @@ def main(data_dict, configs_dict):
     series_rslt_array = np.empty([len(datetime_array), 4])
     series_rslt_array[:] = np.nan
 
-    # Get the annual estimates of Eo and write to the parameter results array
+    # Get the annual estimates of Eo
     Eo_dict, EoQC_dict = optimise_annual_Eo(data_dict, 
                                             params_dict, 
                                             configs_dict,
