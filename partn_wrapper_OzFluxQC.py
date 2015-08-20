@@ -25,7 +25,7 @@ def get_configs():
                     'min_pct_noct_window': 20,
                     'min_pct_day_window': 50,
                     'output_plots': False,
-                    'msmt_interval_hrs': 0.5,
+                    'measurement_interval': 0.5,
                     'QC_accept_code': 0,
                     'plot_output_path': '/home/imchugh/Documents'}
                     
