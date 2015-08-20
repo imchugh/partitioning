@@ -257,19 +257,19 @@ def get_dates(datetime_array, configs_dict):
     all_dates_array = np.array([start_date + dt.timedelta(i) for i in xrange(num_days)])
 
     # Create a shifted array
-    shift_mins = 60 * configs_dict['msmt_interval_hrs']
+    shift_mins = 60 * configs_dict['measurement_interval']
     shift_datetime_array = datetime_array - dt.timedelta(minutes = shift_mins)
 
     # Check that first and last days are complete and revise start and end dates if required
     temp_date = dt.datetime.combine((shift_datetime_array[0] + dt.timedelta(1)).date(), 
                                     dt.datetime.min.time())
     num_obs = len(np.where(shift_datetime_array < temp_date)[0])
-    if num_obs < 24 * (1 / configs_dict['msmt_interval_hrs']):
+    if num_obs < 24 * (1 / configs_dict['measurement_interval']):
         start_date = start_date + dt.timedelta(1)
     temp_date = dt.datetime.combine(shift_datetime_array[-1].date(), 
                                     dt.datetime.min.time())
     num_obs = len(np.where(shift_datetime_array >= temp_date)[0])
-    if num_obs < 24 * (1 / configs_dict['msmt_interval_hrs']):
+    if num_obs < 24 * (1 / configs_dict['measurement_interval']):
         end_date = end_date - dt.timedelta(1)
     
     # Calculate the dates that represent the centre of the window for each step
@@ -296,7 +296,7 @@ def get_dates(datetime_array, configs_dict):
         if date == all_dates_array[0]:
             start_ind = 0
         else:
-            start_date = date_time + dt.timedelta(hours = configs_dict['msmt_interval_hrs'])
+            start_date = date_time + dt.timedelta(hours = configs_dict['measurement_interval'])
             start_ind = np.where(datetime_array == start_date)[0].item()
         if date == all_dates_array[-1]:
             end_ind = len(datetime_array)
@@ -392,7 +392,7 @@ def optimise_annual_Eo(data_dict, params_dict, configs_dict, year_index_dict):
     
     # Initialise local variables with configurations
     min_pct = configs_dict['min_pct_annual']
-    msmt_int = configs_dict['msmt_interval_hrs']
+    msmt_int = configs_dict['measurement_interval']
     
     # Get Eo for each year and compile dictionary
     yearsEo_dict = {}
