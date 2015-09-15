@@ -69,6 +69,7 @@ def make_LRF_3(Eo, k, alpha):
 # Eo and rb fixed
 def make_LRF_4(Eo, rb):
     def LRF(data_d,alpha,Aopt,k):
+#        return uni_LRF(data_d, Eo, rb, alpha, Aopt, k)
         Aopt_VPD = Aopt * np.exp(-k * (data_d['VPD'] - 1))
         index = np.where(data_d['VPD'] <= 1)[0]
         Aopt_VPD[index] = Aopt
@@ -110,34 +111,33 @@ def make_LRF_6(Eo, rb, k, alpha):
     
 #------------------------------------------------------------------------------
 # Daytime rb, alpha, Aopt, k
-"""
-This script simultaneously finds optimal parameter values of: 
-    i)  a rectangular hyperbolic light response function of the form:
-        GPP = (alpha * PAR) / (1 - (PAR / 2000) + (alpha * PAR / Aopt))
-        where alpha is the initial slope of the light response curve and Aopt is
-        the magnitude of GPP at 2000umol photons m^-2 s^-1
-    ii) the reference respiration parameter of the lloyd and Taylor function:
-        Re = rb * e^(Eo * (1 / (10 + 46.02) - 1 / (T + 46.02)))
-Positional arguments to pass in are: 
-    1) a dictionary of numpy arrays (data_dict, np.nan as missing data 
-       value) with the following keys:
-           - 'NEE' - carbon flux in umol m^-2 s^-1
-           - 'TempC' - temperature in celsius
-           - 'PAR' - photosynthetically active radiation in umol photons m^-2 s^-1 
-           - 'VPD' - vapour pressure deficit in kPa 
-    2) a dictionary containing required configurations (configs_dict), with the 
-       following keys:
-           'min_pct_window' - minimum percentage of data in window that can be 
-                              used for parameterisation
-           'Eo_default' - used to fix value of Eo
-           'alpha_default' - used if optimisation with free alpha fails
-           'k_default' - used if optimisation with free k fails
-           'rb_prior' - initial guess for rb
-           'alpha_prior' - initial guess for alpha
-           'Aopt_prior' - initial guess for Aopt
-           'k_prior' - intial guess for k
-"""
+
 def optimise_with_rb(data_dict, params_dict):
+    """
+    This script simultaneously finds optimal parameter values of: 
+        i)  a rectangular hyperbolic light response function of the form:
+            GPP = (alpha * PAR) / (1 - (PAR / 2000) + (alpha * PAR / Aopt))
+            where alpha is the initial slope of the light response curve and Aopt is
+            the magnitude of GPP at 2000umol photons m^-2 s^-1
+        ii) the reference respiration parameter of the lloyd and Taylor function:
+            Re = rb * e^(Eo * (1 / (10 + 46.02) - 1 / (T + 46.02)))
+    Positional arguments to pass in are: 
+        1) a dictionary of numpy arrays (data_dict, np.nan as missing data 
+           value) with the following keys:
+               - 'NEE' - carbon flux in umol m^-2 s^-1
+               - 'TempC' - temperature in celsius
+               - 'PAR' - photosynthetically active radiation in umol photons m^-2 s^-1 
+               - 'VPD' - vapour pressure deficit in kPa 
+        2) a dictionary containing required configurations (configs_dict), with the 
+           following keys:
+               'Eo_default' - used to fix value of Eo
+               'alpha_default' - used if optimisation with free alpha fails
+               'k_default' - used if optimisation with free k fails
+               'rb_prior' - initial guess for rb
+               'alpha_prior' - initial guess for alpha
+               'Aopt_prior' - initial guess for Aopt
+               'k_prior' - intial guess for k
+    """
 
     # Initialise error state variable
     error_state = 0        
@@ -158,7 +158,7 @@ def optimise_with_rb(data_dict, params_dict):
     rb_day, alpha, Aopt, k = params[0], params[1], params[2], params[3]
            
     # If nan returned or a negative VPD coefficient, rerun with VPD set to zero
-    if ((params[3] == np.nan) | (params[3] < 0)):
+    if ((k == np.nan) | (k < 0)):
         error_state = 1            
         k = params_dict['k_default']
         try:
@@ -174,7 +174,7 @@ def optimise_with_rb(data_dict, params_dict):
 
     # If a nan, positive or otherwise out of range value of alpha was returned,
     # rerun with previous value of alpha if available, otherwise set to zero
-    if ((params[1] == np.nan) | (params[1] > 0) | (params[1] < -0.22)):
+    if ((alpha == np.nan) | (alpha[1] > 0) | (alpha[1] < -0.22)):
         error_state = 2   
         k = params_dict['k_default']
         alpha = params_dict['alpha_default']
@@ -201,37 +201,35 @@ def optimise_with_rb(data_dict, params_dict):
         params = [np.nan, np.nan, np.nan, np.nan]
         rb_day, alpha, Aopt, k = params[0], params[1], params[2], params[3]
             
-    params = [rb_day, alpha, Aopt, k]        
+    params = np.array([rb_day, alpha, Aopt, k])
     
-    return np.array(params), error_state
+    return params, error_state
 
 
 def optimise_no_rb(data_dict, params_dict): 
-
-#"""
-#This script finds optimal parameter values of a rectangular hyperbolic light 
-#response function of the form:
-#    GPP = (alpha * PAR) / (1 - (PAR / 2000) + (alpha * PAR / Aopt))
-#    where alpha is the initial slope of the light response curve and Aopt is
-#    the magnitude of GPP at 2000umol photons m^-2 s^-1
-#Positional arguments to pass in are: 
-#    1) a dictionary of numpy arrays (data_dict, np.nan as missing data 
-#       value) with the following keys:
-#           - 'NEE' - carbon flux in umol m^-2 s^-1
-#           - 'TempC' - temperature in celsius
-#           - 'PAR' - photosynthetically active radiation in umol photons m^-2 s^-1 
-#           - 'VPD' - vapour pressure deficit in kPa 
-#    2) a dictionary containing required configurations (configs_dict), with the 
-#       following keys:
-#           'min_pct_window' - minimum percentage of data in window that can be 
-#                              used for parameterisation
-#           'Eo_default' - used to fix value of Eo
-#           'alpha_default' - used if optimisation with free alpha fails
-#           'k_default' - used if optimisation with free k fails
-#           'alpha_prior' - initial guess for alpha
-#           'Aopt_prior' - initial guess for Aopt
-#           'k_prior' - intial guess for k
-#"""
+    """
+    This script finds optimal parameter values of a rectangular hyperbolic light 
+    response function of the form:
+        GPP = (alpha * PAR) / (1 - (PAR / 2000) + (alpha * PAR / Aopt))
+        where alpha is the initial slope of the light response curve and Aopt is
+        the magnitude of GPP at 2000umol photons m^-2 s^-1
+    Positional arguments to pass in are: 
+        1) a dictionary of numpy arrays (data_dict, np.nan as missing data 
+           value) with the following keys:
+               - 'NEE' - carbon flux in umol m^-2 s^-1
+               - 'TempC' - temperature in celsius
+               - 'PAR' - photosynthetically active radiation in umol photons m^-2 s^-1 
+               - 'VPD' - vapour pressure deficit in kPa 
+        2) a dictionary containing required configurations (configs_dict), with the 
+           following keys:
+               'Eo_default' - used to fix value of Eo
+               'alpha_default' - used if optimisation with free alpha fails
+               'k_default' - used if optimisation with free k fails
+               'alpha_prior' - initial guess for alpha
+               'Aopt_prior' - initial guess for Aopt
+               'k_prior' - initial guess for k
+    """
+    
     # Initialise error state variable
     error_state = 0        
 
@@ -252,7 +250,7 @@ def optimise_no_rb(data_dict, params_dict):
     alpha, Aopt, k = params[0], params[1], params[2]
            
     # If nan returned or a negative VPD coefficient, rerun with VPD set to zero
-    if ((params[2] == np.nan) | (params[2] < 0)):
+    if ((k == np.nan) | (k < 0)):
         error_state = 1            
         k = params_dict['k_default']
         try:
@@ -268,7 +266,7 @@ def optimise_no_rb(data_dict, params_dict):
 
     # If a nan, positive or otherwise out of range value of alpha was returned,
     # rerun with previous value of alpha if available, otherwise set to zero
-    if ((params[0] == np.nan) | (params[0] > 0) | (params[0] < -0.22)):
+    if ((alpha == np.nan) | (alpha > 0) | (alpha < -0.22)):
         error_state = 2   
         k = params_dict['k_default']
         alpha = params_dict['alpha_default']
@@ -284,6 +282,6 @@ def optimise_no_rb(data_dict, params_dict):
             params = [np.nan]
         Aopt = params[0]
         
-    params = [alpha, Aopt, k]        
+    params = np.array([alpha, Aopt, k])
     
-    return np.array(params), error_state
+    return params, error_state
