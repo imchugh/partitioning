@@ -23,11 +23,11 @@ def main(data_dict, configs_dict):
 
     # If user wants individual window plots, check whether output directories
     # are present, and create if not
-    if configs_dict['output_plots']:
-        output_path = configs_dict['plot_output_path']
+    if configs_dict['configs']['output_plots']:
+        output_path = configs_dict['configs']['plot_output_path']
         if not os.path.isdir(output_path): 
             os.makedirs(output_path)
-    
+
     # Create a dictionary containing initial guesses for each parameter
     params_dict = make_initial_guess_dict(data_dict)
     
@@ -45,6 +45,7 @@ def main(data_dict, configs_dict):
     (step_date_index_dict, 
      all_date_index_dict,
      year_index_dict) = get_dates(datetime_array, configs_dict)
+    pdb.set_trace()
     date_array = np.array(all_date_index_dict.keys())
     date_array.sort()
     step_date_array = np.array(step_date_index_dict.keys())
@@ -245,7 +246,7 @@ def estimate_Re(sub_d, params_d):
 #------------------------------------------------------------------------------        
 # Get dates
 def get_dates(datetime_array, configs_dict):
-    
+    pdb.set_trace()
     # Assign configs to local vars
     window = configs_dict['window_size_days']
 
