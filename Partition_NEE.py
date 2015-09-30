@@ -609,10 +609,8 @@ def plot_parameter_series(params_dict, configs_dict):
     # Do plotting (lines for interpolated series, markers for optimised estimates)
     for i, ax in enumerate([ax1, ax2, ax3, ax4]):
         if i == 0:
-            print year_loc_dates
             ax1_twin = ax1.twiny()
-            ax1_twin.set_xlim([params_dict['date'][0], params_dict['date'][-1]])#(ax1.get_xlim()) 
-            print ax1_twin.get_xlim()
+            ax1_twin.set_xlim([params_dict['date'][0], params_dict['date'][-1]])
             ax1_twin.set_xticks(year_loc_dates)
             ax1_twin.set_xticklabels(year_labels, fontsize = 16)
             
