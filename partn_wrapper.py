@@ -12,7 +12,7 @@ import datetime as dt
 import netCDF4
 import xlrd
 
-import Partition_NEE_6 as pt
+import Partition_NEE as pt
 import sys
 sys.path.append('../Analysis_tools')
 import DataIO as io
@@ -64,8 +64,6 @@ def get_data(configs_dict):
 
 def main():    
 
-    reload(pt)
-
     # Get configurations
     configs_dict = io.config_to_dict(io.file_select_dialog())
     
@@ -80,6 +78,8 @@ def main():
     # Screen low ustar values (need to fix this to iterate on year!!!)
     data_dict['NEE'][(data_dict['Fsd'] < 5) & 
                     (data_dict['ustar'] < 0.4)] = np.nan
+
+    return pt.main(data_dict, configs_dict)
 
     # Return parameter and series dictionaries
     param_dict, series_dict = pt.main(data_dict, configs_dict)
