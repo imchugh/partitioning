@@ -32,6 +32,14 @@ def optimise_all(data_dict, params_dict):
         params = [np.nan, np.nan]
         error_state = 3
 
+    # If negative rb returned, set to nan
+    if params[0] < 50 or params[0] > 400: 
+        error_state = 8
+        params = [np.nan, np.nan]
+    elif params[1] < 0:
+        error_state = 9
+        params = [np.nan, np.nan]
+
     return params, error_state        
 
 # rb   
