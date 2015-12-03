@@ -13,6 +13,7 @@ import calendar
 sys.path.append('../Analysis_tools')
 sys.path.append('../Partitioning')
 import DataIO as io
+import gap_filling as gf
 import dark_T_response_functions as dark
 import datetime_functions as dtf
 import data_filtering as filt
@@ -72,6 +73,12 @@ def get_data(configs_dict):
     new_dict['date_time'] = date_time
 
     return new_dict, global_attr
+    
+def estimate_Re_time_series(data_dict, params_dict):
+    
+    return
+    
+    
 #------------------------------------------------------------------------------
 
 # Get configurations
@@ -83,34 +90,47 @@ data_dict, attr = get_data(configs_dict)
 # Drop levels in config file
 configs_dict['configs']['output_path'] = configs_dict['files']['output_path']
 configs_dict = configs_dict['configs']
+window = configs_dict['window_size_days']
+step = configs_dict['step_size_days']
 
 # Get data step indices
-step_dates_index_dict = dtf.get_moving_window_indices(date_time, 10, 5)
+datetime_array = data_dict.pop('date_time')
+years_index_dict = dtf.get_year_indices(datetime_array)
+dates_index_dict = dtf.get_day_indices(datetime_array)
+step_dates_index_dict = dtf.get_moving_window_indices(datetime_array, 
+                                                      window, step)
+
+# Create a dates array to use as index for results
+date_array = np.array(dates_index_dict.keys())
+date_array.sort()
+rb_array = np.empty([len(date_array)])
+rb_array[:] = np.nan
+Eo_array = np.empty([len(date_array)])
 
 # Initalise dicts
-temp_dict = data_dict.copy()
-temp_dict.pop('date_time')
 all_noct_dict = filtering(temp_dict)
 params_dict = {'Eo_prior': 100,
                'rb_prior': all_noct_dict['NEE'].mean()}
-
-# Get years
-years_dict = filt.subset_datayear_from_arraydict(data_dict, 'date_time')
 
 # Do annual fits for Eo
 Eo_annual_data_dict = {}
 Eo_annual_error_dict = {}
 Eo_pass_keys = []
 Eo_fail_keys = []
-for year in years_dict.keys():
+for year in years_index_dict.keys():
 
     # Calculate number of nocturnal recs for year
     days = 366 if calendar.isleap(year) else 365
     recs = days * (24 / configs_dict['measurement_interval']) / 2
 
+    # Input and output indices
+    
+
     # Calculate Eo
-    years_dict[year].pop('date_time')
-    sub_dict = filtering(years_dict[year])
+    indices = years_index_dict[year]
+    this_dict = {var: data_dict[var][indices[0]: indices[1]] 
+                 for var in data_dict.keys()}
+    sub_dict = filtering(this_dict)
     data_pct = int(len(sub_dict['NEE']) / float(recs) * 100)
     if not data_pct < configs_dict['minimum_pct_annual']:
         params, error_code = dark.optimise_all(sub_dict, params_dict)
@@ -122,6 +142,9 @@ for year in years_dict.keys():
         Eo_pass_keys.append(year)
     else:
         Eo_fail_keys.append(year)
+        
+    # Send to Eo results array
+    out_index
 
 # Fill any gaps
 if np.all(np.isnan(Eo_annual_data_dict.values())):
@@ -131,9 +154,28 @@ if np.any(np.isnan(Eo_annual_data_dict.values())):
     Eo_mean = np.array([Eo_annual_data_dict[year] for year in Eo_pass_keys]).mean()    
     for year in Eo_fail_keys:
         Eo_annual_data_dict[year] = Eo_mean
-    
-for date in step_dates.keys():
 
-    print 
-   
-#    noct_array = subset_arraydict_on_threshold()
+# Calculate rb for windows    
+for date in step_dates_index_dict.keys():
+    
+    # Specify Eo value for the relevant year
+    params_dict['Eo_default'] = Eo_annual_data_dict[date.year]
+    
+    # Input and output indices
+    in_indices = step_dates_index_dict[date]
+    out_index = np.where(date_array == date)
+
+    this_dict = {var: data_dict[var][in_indices[0]: in_indices[1]] 
+                 for var in data_dict.keys()}
+    sub_dict = filtering(this_dict)
+    data_pct = int(len(sub_dict['NEE']) / float((24 / configs_dict['measurement_interval']) / 2) * 100)
+    if not data_pct < configs_dict['minimum_pct_noct_window']:
+        params, error_code = dark.optimise_rb(sub_dict, params_dict)
+    else:
+        params, error_code = [np.nan, np.nan], 10
+    rb_array[out_index] = params
+
+# Interpolate    
+rb_array = gf.generic_2d_linear(rb_array)
+
+# Estimate time series Re
