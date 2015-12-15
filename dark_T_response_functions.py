@@ -19,7 +19,7 @@ def optimise_all(data_dict, params_dict):
     error_state = 0              
 
     drivers_dict = {driver: data_dict[driver] for driver in ['TempC']}
-    response_array = data_dict['NEE']
+    response_array = data_dict['Fc_series']
 
     try:
         params = curve_fit(lambda x, a, b:
@@ -50,7 +50,7 @@ def optimise_rb(data_dict, params_dict):
     
     # Get drivers and response
     drivers_dict = {driver: data_dict[driver] for driver in ['TempC']}
-    response_array = data_dict['NEE']        
+    response_array = data_dict['Fc_series']        
     
     try:
         params = curve_fit(lambda x, b:
