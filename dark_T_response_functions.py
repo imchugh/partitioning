@@ -7,6 +7,7 @@ Created on Sat Jul 11 12:18:25 2015
 
 from scipy.optimize import curve_fit
 import numpy as np
+import pdb
 
 # No fixed parameters    
 def TRF(data_dict, Eo, rb):
@@ -17,7 +18,6 @@ def optimise_all(data_dict, params_dict):
 
     # Initialise error state variable
     error_state = 0              
-
     drivers_dict = {driver: data_dict[driver] for driver in ['TempC']}
     response_array = data_dict['Fc_series']
 
