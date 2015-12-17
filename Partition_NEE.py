@@ -106,6 +106,8 @@ def main(data_dict, configs_dict):
         noct_dict = subset_nan(noct_dict)
         len_valid_noct = len(noct_dict['NEE'])
     
+        noct_dict['Fc_series'] = noct_dict['NEE']        
+            
         # Do optimisation only if data passes minimum threshold
         if round(float(len_valid_noct) / len_all_noct * 100) > \
         configs_dict['minimum_pct_noct_window']:
@@ -504,6 +506,7 @@ def optimise_annual_Eo(data_dict, params_dict, configs_dict, year_index_dict):
         pct = round(float(len(sub_dict['NEE'])) / recs * 100)
 
         # Fit L&T parameters if minimum data criterion satisfied, otherwise nan
+        sub_dict['Fc_series'] = sub_dict['NEE']
         if pct > min_pct:
             params, error_code = dark.optimise_all(sub_dict, params_dict)
         else:
