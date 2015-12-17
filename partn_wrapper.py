@@ -17,6 +17,7 @@ import sys
 sys.path.append('../Analysis_tools')
 import DataIO as io
 
+reload(pt)
 
 def get_data(configs_dict):
 
